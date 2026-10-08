@@ -19,6 +19,10 @@ import { app, BrowserWindow, ipcMain, Menu } from "electron";
 import pkg, { CancellationToken } from "electron-updater";
 import semver from "semver";
 import { logger } from "./logger.js";
+import {
+  cleanupStaleMacUpdateBundles,
+  installMacUpdateByBundleReplacement,
+} from "./macUpdateBundleInstaller.js";
 import { getElectronReleasePlatform, ManifestUpdateProvider } from "./manifestUpdateProvider.js";
 const { autoUpdater } = pkg;
 
@@ -473,6 +477,21 @@ async function quitAndInstallUpdate(rejectUnavailable = false) {
     // 3.3.0 的 Windows 自定义 PowerShell delayed launcher 在 detached/hidden
     // 模式下可能只创建 powershell.exe，却没有稳定执行到安装器启动，用户看到应用关闭但版本不变。
     // 这里恢复 electron-updater 原生安装入口，避免把“launcher 进程创建成功”误当成更新已接管。
+    if (process.platform === "darwin") {
+      // 未正式签名的 mac 构建：Squirrel.Mac 安装阶段的签名一致性校验必然失败
+      // （SQRLCodeSignatureErrorDomain code -1），改用缓存 zip 解压替换 App 包并重启。
+      // 完整性由 update-info.json 的 sha512 + 解压后版本比对保证。
+      try {
+        await installMacUpdateByBundleReplacement({ expectedVersion: readyUpdateVersion });
+        return;
+      } catch (error) {
+        // 替换失败必须走统一收敛：清 ready、回退可重试状态，绝不能让进程带着
+        // 已改名的 App 目录继续运行。
+        handleAutoUpdateFailure(error, "mac bundle replacement failed");
+        if (rejectUnavailable) throw error;
+        return;
+      }
+    }
     autoUpdater.quitAndInstall();
   } finally {
     quitAndInstallInFlight = false;
@@ -1525,6 +1544,10 @@ export async function initAutoUpdater(options: InitAutoUpdaterOptions = {}): Pro
 
   logger.info(`[auto-update] initializing, current version: ${getCurrentAppVersionForUpdate()}`);
 
+  // 上一次“解压替换”升级残留的旧包（*.app.old-zcode-update）在新版本启动成功后
+  // 就没有保留价值，启动时 best-effort 清理；失败只记日志，不影响更新链路。
+  void cleanupStaleMacUpdateBundles();
+
   // 已下载旧版本后，feed 继续推进到更高版本时，主进程必须先比较远端版本和 ready 版本，
   // 再决定是否下载。若继续让 electron-updater 自动下载，它只会按当前 app 版本判断，
   // 导致 `3.1.2` 已 ready `3.1.3` 时每次轮询都可能重复下载 `3.1.3`。
@@ -1532,7 +1555,10 @@ export async function initAutoUpdater(options: InitAutoUpdaterOptions = {}): Pro
   // Windows/NSIS 在窗口关闭后会异步启动安装；如果用户紧接着关机，安装器可能被系统中断，
   // 留下半更新状态并导致下次启动失败。
   // 这里仅在 Windows 关闭“退出即自动安装”，要求用户显式点更新；其他平台保持原有行为，避免改动既有升级链路。
-  autoUpdater.autoInstallOnAppQuit = process.platform !== "win32";
+  // macOS 例外：未正式签名的构建 Squirrel 安装必然报 SQRLCodeSignatureErrorDomain，
+  // 退出时不能再让 Squirrel 尝试接管；darwin 一律走显式的“解压替换 App 包”安装。
+  autoUpdater.autoInstallOnAppQuit =
+    process.platform === "win32" || process.platform === "darwin" ? false : true;
   autoUpdater.logger = logger;
   updateFeedMode = options.updateFeedSource?.url.trim() ? "manifest-dev" : "github";
   if (updateFeedMode === "manifest-dev") {
