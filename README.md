@@ -11,12 +11,11 @@
   简体中文 | <a href="README.en.md">English</a>
 </p>
 
-
-
 ZCode 是 AI 编程工作台，提供桌面应用、浏览器界面和终端 Agent。本仓库包含客户端、后端服务、共享 UI，以及 Agent CLI 与运行时源码。
 
 ## 更新
 
+- 2026-10-8：更新至 ZCode v100.0.2 版本（更新源切换为本仓库 GitHub Releases）。
 - 2026-10-8：更新至 ZCode v100.0.1 版本。
 - 2026-9-23：更新至 ZCode v3.14.3 版本。
 

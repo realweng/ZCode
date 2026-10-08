@@ -120,6 +120,11 @@ jobs:
               cp -v "$f" "$STAGING_DIR/"
             done
           done
+          # electron-updater 更新元数据（latest-mac.yml / latest.yml / latest-linux.yml）。
+          # 客户端 github provider 靠这些文件发现新版本；Release 缺失时自动更新永远不可见。
+          for f in packages/desktop/dist/latest*.yml; do
+            cp -v "$f" "$STAGING_DIR/"
+          done
           if [ -z "$(ls -A "$STAGING_DIR" 2>/dev/null)" ]; then
             echo "no installer artifacts found in packages/desktop/dist" >&2
             ls -la packages/desktop/dist >&2 || true

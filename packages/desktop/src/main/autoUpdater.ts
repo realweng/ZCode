@@ -56,6 +56,12 @@ const acknowledgedPostUpdateReleaseNotesVersions = new Set<string>();
 const cancelledDownloadTokens = new WeakSet<CancellationToken>();
 let pendingCancelledDownloadErrorCount = 0;
 let autoUpdaterSettingService: SettingServiceLike | undefined;
+// 更新源模式：github = 本仓库 GitHub Releases（正式链路）；manifest-dev = 开发联调
+// 用 env/启动参数注入的服务端 manifest（packaged 环境下该覆盖会被忽略）。
+let updateFeedMode: "github" | "manifest-dev" = "github";
+// 本仓库 GitHub Releases 作为正式更新源；owner/repo 与 CI 发版（release-build.yml）一致。
+const GITHUB_UPDATE_OWNER = "realweng";
+const GITHUB_UPDATE_REPO = "ZCode";
 // initAutoUpdater({ enabled: false }) 只清轮询并 return，electron-updater 实例保持未配置
 // （占位 feed、autoDownload 默认值）。任何漏改成按身份判断的入口若仍调用手动检查，
 // 都会对占位 feed 发真实请求。这里记住“本 flavor 已禁用”，让手动检查在模块内部 fail-closed。
@@ -749,6 +755,10 @@ async function syncAutoUpdateCheckChannelFromSettings(
   // 如果 begin 阶段仍用默认 stable 作为 expected channel，冷启动 preview 结果会被误判为 stale。
   availableUpdateChannel = nextChannel;
   activeAutoUpdateCheckChannel = nextChannel;
+  if (updateFeedMode === "github") {
+    // github provider 的 allowPrerelease 在 setFeedURL 时固化，check 前按最新通道重挂。
+    applyGitHubUpdateProvider(nextChannel === "preview");
+  }
 }
 
 function applyManifestUpdateProvider(options: InitAutoUpdaterOptions): void {
@@ -771,6 +781,23 @@ function applyManifestUpdateProvider(options: InitAutoUpdaterOptions): void {
     manifestUrl
       ? `[auto-update] service manifest provider applied platform=${getElectronReleasePlatform()} manifestUrl=${redactUpdateFeedUrlForLog(manifestUrl)}`
       : `[auto-update] service manifest provider applied platform=${getElectronReleasePlatform()}`,
+  );
+}
+
+/**
+ * 正式更新源：本仓库 GitHub Releases（electron-updater 内置 github provider，
+ * 公共仓库无需 token）。stable/preview 通道映射为正式 Release / prerelease；
+ * allowPrerelease 是 AppUpdater 实例属性，通道变化后必须在下次 check 前重设。
+ */
+function applyGitHubUpdateProvider(allowPrerelease: boolean): void {
+  autoUpdater.setFeedURL({
+    provider: "github",
+    owner: GITHUB_UPDATE_OWNER,
+    repo: GITHUB_UPDATE_REPO,
+  });
+  autoUpdater.allowPrerelease = allowPrerelease;
+  logger.info(
+    `[auto-update] github release provider applied repo=${GITHUB_UPDATE_OWNER}/${GITHUB_UPDATE_REPO} channel=${allowPrerelease ? "preview" : "stable"}`,
   );
 }
 
@@ -1386,6 +1413,9 @@ export function refreshAutoUpdaterReleaseChannel(
     `[auto-update] ${reason}: refresh manifest channel ${currentChannel} -> ${nextChannel}`,
   );
   availableUpdateChannel = nextChannel;
+  if (updateFeedMode === "github") {
+    applyGitHubUpdateProvider(nextChannel === "preview");
+  }
   clearAvailableUpdateState();
   setAutoUpdaterMenuState({ kind: "checking", enabled: false });
   const checkId = beginAutoUpdateCheck();
@@ -1504,7 +1534,15 @@ export async function initAutoUpdater(options: InitAutoUpdaterOptions = {}): Pro
   // 这里仅在 Windows 关闭“退出即自动安装”，要求用户显式点更新；其他平台保持原有行为，避免改动既有升级链路。
   autoUpdater.autoInstallOnAppQuit = process.platform !== "win32";
   autoUpdater.logger = logger;
-  applyManifestUpdateProvider(options);
+  updateFeedMode = options.updateFeedSource?.url.trim() ? "manifest-dev" : "github";
+  if (updateFeedMode === "manifest-dev") {
+    applyManifestUpdateProvider(options);
+  } else {
+    // 正式链路从本仓库 GitHub Releases 检查更新；preview 偏好映射为 prerelease。
+    applyGitHubUpdateProvider(
+      (await resolveUpdateReleaseChannel(options.settingService)) === "preview",
+    );
+  }
 
   const triggerCheckForUpdates = (reason: string) => {
     if (checkForUpdatesInFlight) {
