@@ -4618,6 +4618,8 @@ const enUS: Record<string, string> = {
   "chat.message.retry": "Retry",
   "chat.history.workingFor": "Working for {duration}",
   "chat.history.workingThroughputTitle": "Output throughput of the latest completed model request",
+  "chat.history.workingThroughputEstimateTitle":
+    "Streaming output throughput (character-based estimate; exact value shown once the request completes)",
   "chat.history.workedFor": "Worked for {duration}",
   "chat.history.worked": "Worked",
   "chat.history.stopped": "Stopped",

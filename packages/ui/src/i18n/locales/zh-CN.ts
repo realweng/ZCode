@@ -4321,6 +4321,7 @@ const zhCN: Record<string, string> = {
   "chat.message.retry": "重试",
   "chat.history.workingFor": "工作中 {duration}",
   "chat.history.workingThroughputTitle": "最近一次已完成模型请求的输出吞吐",
+  "chat.history.workingThroughputEstimateTitle": "流式输出吞吐（按字符估算；请求完成后显示精确值）",
   "chat.history.workedFor": "已工作 {duration}",
   "chat.history.worked": "已处理",
   "chat.history.stopped": "已停止",
