@@ -17,9 +17,50 @@ import { logger } from "./logger.js";
  * 安装器：electron-updater 已把更新 zip 落在缓存目录，直接校验 sha512、解压、
  * 原子替换 App 包并重启。完整性由 latest-mac.yml 的 sha512 与 update-info.json
  * 的 fileName 共同保证，替代 Squirrel 的签名校验职责。Windows 仍走 NSIS 原链路。
+ *
+ * 残留策略（踩过的坑）：重命名后的旧包会被 Spotlight / 退出中的进程短暂占用，
+ * 删除会随机失败（实测 rmdir ENOTEMPTY）。安装路径**绝不能**把删除旧包当作前置条件——
+ * 旧实现先 rm 固定名字的残留、失败即中止，一次半删残留就让后续所有更新永久卡死。
+ * 现在每次替换用带时间戳的唯一旧包名（无需预删除），删除一律 best-effort，
+ * 失败留到下次启动重试。
  */
 
-const STALE_OLD_BUNDLE_SUFFIX = ".app.old-zcode-update";
+const OLD_BUNDLE_MARKER = ".old-zcode-update";
+const STAGING_DIR_MARKER = ".zcode-update-staging-";
+
+/** 当前 App 包所在目录（通常是 /Applications）。 */
+function resolveAppRootDir(): string {
+  // exe = <root>/Contents/MacOS/<executable>
+  return path.dirname(resolveCurrentAppBundleRoot());
+}
+
+/**
+ * 列出上次替换/清理遗留的目录：旧包与暂存目录。
+ * 一律尽力而为清理，且**绝不**让清理失败影响安装链路——
+ * 重命名后的旧包可能被 Spotlight 或残留进程短暂占用，删除会随机失败
+ * （实测 rmdir ENOTEMPTY），若把它当作安装前置条件会让后续更新永久卡死。
+ */
+async function listUpdateLeftovers(): Promise<string[]> {
+  const appRootDir = resolveAppRootDir();
+  const appName = path.basename(resolveCurrentAppBundleRoot());
+  const entries = await fs.readdir(appRootDir).catch(() => [] as string[]);
+  return entries
+    .filter(
+      (entry) =>
+        entry.startsWith(`${appName}${OLD_BUNDLE_MARKER}`) || entry.startsWith(STAGING_DIR_MARKER),
+    )
+    .map((entry) => path.join(appRootDir, entry));
+}
+
+async function removePathBestEffort(target: string, reason: string): Promise<boolean> {
+  try {
+    await fs.rm(target, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
+    return true;
+  } catch (error) {
+    logger.warn(`[auto-update] ${reason} failed (leftover kept, will retry next launch):`, error);
+    return false;
+  }
+}
 
 function execFileText(file: string, args: readonly string[]): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -75,18 +116,22 @@ async function readExtractedAppBundleVersion(appBundlePath: string): Promise<str
   return version;
 }
 
-/** 清理历史替换残留的旧包（启动时 best-effort 调用，失败只记日志）。 */
+/** 清理历史替换残留的旧包与暂存目录（启动时 best-effort，失败只记日志）。 */
 export async function cleanupStaleMacUpdateBundles(): Promise<void> {
   if (process.platform !== "darwin" || !app.isPackaged) return;
   try {
-    const appRoot = resolveCurrentAppBundleRoot();
-    const stale = `${appRoot}${STALE_OLD_BUNDLE_SUFFIX}`;
-    if (existsSync(stale)) {
-      await fs.rm(stale, { recursive: true, force: true });
-      logger.info("[auto-update] removed stale old app bundle after bundle-replace update");
+    const leftovers = await listUpdateLeftovers();
+    let removed = 0;
+    for (const leftover of leftovers) {
+      if (await removePathBestEffort(leftover, "stale update leftover cleanup")) {
+        removed += 1;
+      }
+    }
+    if (removed > 0) {
+      logger.info(`[auto-update] removed ${removed} stale update leftover(s)`);
     }
   } catch (error) {
-    logger.warn("[auto-update] stale old app bundle cleanup failed:", error);
+    logger.warn("[auto-update] stale update leftover scan failed:", error);
   }
 }
 
@@ -127,8 +172,12 @@ export async function installMacUpdateByBundleReplacement(params: {
   const appName = path.basename(appRoot);
   // 暂存目录放在 App 同级卷上，保证 rename 原子性；ditto 保留符号链接与权限，
   // unzip 会破坏 .app 内的 symlink 结构。
-  const stagingDir = path.join(appRootDir, `.zcode-update-staging-${Date.now()}`);
-  const oldBundlePath = `${appRoot}${STALE_OLD_BUNDLE_SUFFIX}`;
+  const stamp = Date.now();
+  const stagingDir = path.join(appRootDir, `${STAGING_DIR_MARKER}${stamp}`);
+  // 旧包名带时间戳：每次替换都换新名字，因此不需要（也不能）先删旧包。
+  // 重命名后的旧包会被 Spotlight 等短暂占用，删除可能随机失败；
+  // 旧实现先 rm 残留、失败即中止安装，导致一次残留就把后续更新永久卡死。
+  const oldBundlePath = path.join(appRootDir, `${appName}${OLD_BUNDLE_MARKER}-${stamp}`);
   await fs.mkdir(stagingDir, { recursive: true });
   try {
     await execFileText("/usr/bin/ditto", ["-x", "-k", zipPath, stagingDir]);
@@ -147,9 +196,6 @@ export async function installMacUpdateByBundleReplacement(params: {
       () => undefined,
     );
 
-    if (existsSync(oldBundlePath)) {
-      await fs.rm(oldBundlePath, { recursive: true, force: true });
-    }
     await fs.rename(appRoot, oldBundlePath);
     try {
       await fs.rename(extractedBundle, appRoot);
@@ -162,13 +208,16 @@ export async function installMacUpdateByBundleReplacement(params: {
       `[auto-update] mac bundle replace applied version=${params.expectedVersion}; relaunching`,
     );
   } catch (error) {
-    await fs.rm(stagingDir, { recursive: true, force: true }).catch(() => undefined);
+    await removePathBestEffort(stagingDir, "staging dir cleanup after failed install");
     throw error instanceof Error ? error : new Error(String(error));
   }
 
   // 缓存中的更新 zip 已消费且包已替换；留着只会让缓存目录常驻 ~180MB。
-  await fs.rm(zipPath, { recursive: true, force: true }).catch(() => undefined);
-  await fs.rm(stagingDir, { recursive: true, force: true }).catch(() => undefined);
+  await removePathBestEffort(zipPath, "consumed update zip cleanup");
+  await removePathBestEffort(stagingDir, "staging dir cleanup after install");
+  // 旧包留给下次启动的 cleanupStaleMacUpdateBundles 清理：此刻它可能仍被
+  // Spotlight / 退出中的进程占用，在这里删既可能失败、也没必要阻塞重启。
+  logger.info(`[auto-update] old bundle retained for next-launch cleanup: ${oldBundlePath}`);
 
   app.relaunch();
   app.exit(0);
