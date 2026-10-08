@@ -9,6 +9,8 @@ import {
   type CodingPlanStaticProductsConfig,
   type StartPlanPreviewConfig,
   isZaiCodingPlanProviderId,
+  isKimiCodingPlanProviderId,
+  type CodingPlanSubscriptionProviderId,
 } from "@zcode/shared";
 import { useOptionalServices } from "@/hooks/useServices.js";
 import { logger } from "@/logger.js";
@@ -17,6 +19,16 @@ import {
   type CodingPlanProductDisplay,
 } from "@/settings/model-provider-section/codingPlanProductPresentation.js";
 import type { CodingPlanProviderId } from "@/settings/model-provider-section/constants.js";
+
+/**
+ * 发起订阅类服务端请求/索引静态目录时的窄化：Kimi 没有订阅商品通道。
+ * 用类型谓词而非 throw，让调用方在 false 分支安全跳过。
+ */
+function isSubscriptionProviderId(
+  providerId: CodingPlanProviderId,
+): providerId is CodingPlanProviderId & CodingPlanSubscriptionProviderId {
+  return !isKimiCodingPlanProviderId(providerId);
+}
 
 interface CodingPlanProductsState {
   snapshot: CodingPlanProductsSnapshot | null;
@@ -225,7 +237,9 @@ async function loadBatchPreviewWithStaticProducts(
   service: NonNullable<ReturnType<typeof useOptionalServices>>["codingPlanSubscriptionService"],
   staticProducts: CodingPlanStaticProduct[],
 ): Promise<CodingPlanProductsSnapshot> {
-  const previewSnapshot = await service.batchPreview({ providerId });
+  const previewSnapshot = await service.batchPreview({
+    providerId: isSubscriptionProviderId(providerId) ? providerId : undefined,
+  });
   const previewByProductId = new Map(
     previewSnapshot.productList.map((product) => [product.productId, product]),
   );
@@ -370,7 +384,7 @@ async function loadCodingPlanStaticProductListForTest(
     const config = await loadCodingPlanStaticProductsConfig(service);
     // 套餐描述由远端 client/configs 统一维护，前端不能再按 Lite/Pro/Max 写死覆盖，
     // 否则远端更新后设置页仍展示旧文案。
-    const remoteProducts = config[providerId] ?? [];
+    const remoteProducts = isSubscriptionProviderId(providerId) ? (config[providerId] ?? []) : [];
     if (providerId === BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan) {
       return filterCodingPlanPurchaseProducts(providerId, remoteProducts);
     }

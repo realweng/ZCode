@@ -3,6 +3,7 @@ import { useCodingPlanEntryGate } from "@/settings/CodingPlanEntryButton.js";
 import {
   BIGMODEL_PROVIDER_ID,
   BUILTIN_MODEL_PROVIDER_IDS,
+  isZhipuModelProviderFamilyId,
   ZAI_PROVIDER_ID,
   type BuiltinModelProviderId,
   type ProviderFamilyConnectionSelectionSettings,
@@ -194,7 +195,15 @@ function resolveTeamPlanInspectionAccess(
   const productId = item.currentProductId?.trim();
   const organizationId = item.organizationId?.trim();
   const projectId = item.projectId?.trim();
-  if (!family || !productId || !organizationId || !projectId) return undefined;
+  // Team 权益查询属于 zhipu 订阅体系；Kimi 域不会出现 teamPlan 导航项，这里防御性收窄。
+  if (
+    !family ||
+    !isZhipuModelProviderFamilyId(family) ||
+    !productId ||
+    !organizationId ||
+    !projectId
+  )
+    return undefined;
   return {
     type: "zhipu-account" as const,
     family,
@@ -328,8 +337,10 @@ export function ModelProviderSectionDetail({
       providerSettingsView,
       selectedNavItem.presetId,
     );
+    // Start/Individual 权益查询属于 zhipu 订阅体系；Kimi coding plan 卡片不接入该通道。
     if (
       !access ||
+      access.access.type !== "zhipu-account" ||
       (access.access.mode !== "start-plan" && access.access.mode !== "individual-coding-plan")
     )
       return undefined;
@@ -504,7 +515,10 @@ export function ModelProviderSectionDetail({
       onRetryCodingPlan
         ? async () => {
             await onRetryCodingPlan();
-            await selectedTeamPlanEntitlement.refresh({ force: true, reason: "manual" });
+            await selectedTeamPlanEntitlement.refresh({
+              force: true,
+              reason: "manual",
+            });
           }
         : undefined;
     const accessBanner =

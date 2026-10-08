@@ -9,6 +9,8 @@ import type { OAuthProviderId, OAuthProviderMeta } from "@zcode/shared";
 import {
   BIGMODEL_PROVIDER_ID,
   isCredentialDecryptError,
+  KIMI_GLOBAL_PROVIDER_ID,
+  KIMI_PROVIDER_ID,
   resolveSafeTelemetryHostname,
   ZAI_PROVIDER_ID,
 } from "@zcode/shared";
@@ -86,9 +88,17 @@ export function useOAuth() {
           return;
         }
 
-        platform.registerOAuthState({ state, provider: startedProvider });
+        const isKimiDeviceFlow =
+          startedProvider === KIMI_PROVIDER_ID || startedProvider === KIMI_GLOBAL_PROVIDER_ID;
+        // Kimi 走 Device Code Flow，没有 zcode:// 深链回调；向 Main 注册 state 只会留下
+        // 5 分钟过期的无效映射，没有任何回调会消费它。
+        if (!isKimiDeviceFlow) {
+          platform.registerOAuthState({ state, provider: startedProvider });
+        }
         setOAuthPollingActive(
-          startedProvider === ZAI_PROVIDER_ID || startedProvider === BIGMODEL_PROVIDER_ID,
+          startedProvider === ZAI_PROVIDER_ID ||
+            startedProvider === BIGMODEL_PROVIDER_ID ||
+            isKimiDeviceFlow,
         );
         platform.openExternal(authorizeUrl);
         void reportAppTelemetryEvent(

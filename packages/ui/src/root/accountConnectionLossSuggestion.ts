@@ -1,5 +1,8 @@
 import type { IServiceAccessor, ProviderSettingsView } from "@zcode/services";
-import type { ProviderFamilyConnectionSelection } from "@zcode/shared";
+import {
+  isZhipuModelProviderFamilyId,
+  type ProviderFamilyConnectionSelection,
+} from "@zcode/shared";
 import type { AccountConnectionLoss } from "@/root/accountConnectionRefreshObserver.js";
 import {
   resolveFirstSubscribedTeamPlanConnectionWithContext,
@@ -16,8 +19,10 @@ export async function prepareAccountConnectionSwitch(
 ) {
   const settings = await services.settingService.get();
   const family = settings.providerFamilyDomain;
-  const original = family && settings.providerFamilyConnectionSelections?.[family];
-  if (!family || !original || original.kind === "start-plan" || !event.isCurrent()) return null;
+  // 连接丢失自动切换建议面向 zhipu 订阅商品；Kimi 域没有 Start/Team 备选，不参与建议。
+  if (!family || !isZhipuModelProviderFamilyId(family)) return null;
+  const original = settings.providerFamilyConnectionSelections?.[family];
+  if (!original || original.kind === "start-plan" || !event.isCurrent()) return null;
   if (
     resolveModelProviderFamilyConnectionProviderId({
       providerFamilyDomain: family,

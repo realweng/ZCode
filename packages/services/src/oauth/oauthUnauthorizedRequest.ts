@@ -1,8 +1,11 @@
 import {
   BIGMODEL_PROVIDER_ID,
+  KIMI_GLOBAL_PROVIDER_ID,
+  KIMI_PROVIDER_ID,
   ZAI_PROVIDER_ID,
   buildBigModelApiUrl,
   buildRuntimeZaiBusinessUrl,
+  resolveKimiApiBaseUrl,
 } from "@zcode/shared";
 import type { ICredentialService } from "#src/credential/credential.js";
 import { resolveBigModelUserinfoUrl } from "#src/oauth/providers/bigmodelProviderConfig.js";
@@ -32,7 +35,10 @@ export async function isCurrentOAuthCredentialRequest(options: {
   // 原观察器只识别 ZCode JWT，业务 access token 的 userinfo 401
   // 只会变成普通请求错误。仅扩展用户/团队身份查询，避免支付和 API key 接口跟随全局退出。
   const provider = await options.credentialService.load("oauth:active_provider");
-  if (provider !== BIGMODEL_PROVIDER_ID && provider !== ZAI_PROVIDER_ID) return false;
+  const isKimiProvider = provider === KIMI_PROVIDER_ID || provider === KIMI_GLOBAL_PROVIDER_ID;
+  if (provider !== BIGMODEL_PROVIDER_ID && provider !== ZAI_PROVIDER_ID && !isKimiProvider) {
+    return false;
+  }
   const env = options.env ?? process.env;
   const requestUrl = tryResolveHttpUrl(() => options.input);
   if (!requestUrl) return false;
@@ -42,7 +48,16 @@ export async function isCurrentOAuthCredentialRequest(options: {
   const urls =
     provider === BIGMODEL_PROVIDER_ID
       ? [() => buildBigModelApiUrl(env, customerInfoPath), () => resolveBigModelUserinfoUrl(env)]
-      : [() => buildRuntimeZaiBusinessUrl(env, customerInfoPath), () => resolveZaiUserinfoUrl(env)];
+      : provider === ZAI_PROVIDER_ID
+        ? [
+            () => buildRuntimeZaiBusinessUrl(env, customerInfoPath),
+            () => resolveZaiUserinfoUrl(env),
+          ]
+        : [
+            // Kimi 身份查询走 OpenAI 兼容 base 的 /me；两个区域共享同一 active provider 分支。
+            () =>
+              `${resolveKimiApiBaseUrl(env, provider === KIMI_GLOBAL_PROVIDER_ID ? "global" : "mainland-cn")}/me`,
+          ];
   if (
     !urls.some((resolve) => {
       const expected = tryResolveHttpUrl(resolve);

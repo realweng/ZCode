@@ -834,18 +834,39 @@ export const zcodeAccountAccessSchema = z.discriminatedUnion("planKind", [
       projectId: nonEmptyString,
     })
     .strict(),
+  // Kimi 账号访问：OAuth access token 直接作为模型请求 Bearer，没有 zcode JWT 与商品分层。
+  z
+    .object({
+      type: z.literal("kimi-account"),
+      family: z.literal("kimi"),
+      planKind: z.literal("kimi-coding-plan"),
+    })
+    .strict(),
 ]);
 export type ZCodeAccountAccess = z.infer<typeof zcodeAccountAccessSchema>;
 
-/** Active Model 固定的账号访问类别；当前商品和 Team scope 由账号服务在请求期解析。 */
-export const zcodeProviderAccountAccessSchema = z
-  .object({
-    type: z.literal("zhipu-account"),
-    accountType: z.enum(["zai", "bigmodel"]),
-    mode: z.enum(["start-plan", "individual-coding-plan", "team-coding-plan", "off-peak"]),
-    entitled: z.boolean(),
-  })
-  .strict();
+/**
+ * Active Model 固定的账号访问类别；当前商品和 Team scope 由账号服务在请求期解析。
+ * kimi-account 的可用性完全由本地 OAuth 会话推导（entitled = 登录态存在），无远端商品探测。
+ */
+export const zcodeProviderAccountAccessSchema = z.discriminatedUnion("type", [
+  z
+    .object({
+      type: z.literal("zhipu-account"),
+      accountType: z.enum(["zai", "bigmodel"]),
+      mode: z.enum(["start-plan", "individual-coding-plan", "team-coding-plan", "off-peak"]),
+      entitled: z.boolean(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("kimi-account"),
+      accountType: z.enum(["kimi", "kimi-global"]),
+      mode: z.literal("kimi-coding-plan"),
+      entitled: z.boolean(),
+    })
+    .strict(),
+]);
 export type ZCodeProviderAccountAccess = z.infer<typeof zcodeProviderAccountAccessSchema>;
 
 export type ZCodeSessionMode = z.infer<typeof zcodeSessionModeSchema>;

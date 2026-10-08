@@ -1,6 +1,7 @@
 import {
   BUILTIN_MODEL_PROVIDER_IDS,
   getModelProviderFamilySpec,
+  isZhipuModelProviderFamilyId,
   resolveModelProviderFamilySpecByProviderId,
   type ProviderFamilyConnectionSelectionSettings,
   type ProviderFamilyDomain,
@@ -114,12 +115,16 @@ function buildTeamCodingPlanUsageSources(
       // 硬编码 bigmodel，zai team product 的 sourceId 用了 bigmodel 前缀、providerId 也错。
       // 按 product.family 用 family-aware key + 对应 codingPlan providerId。
       const productFamily = resolveEnterpriseCodingPlanProductFamily(product);
+      // Kimi 没有 Team 商品，sidebar 用量源只存在于 zhipu 域 family。
+      if (!isZhipuModelProviderFamilyId(productFamily)) {
+        return [];
+      }
       const baseAccess = accountAccesses[productFamily];
       if (baseAccess?.mode !== "team-coding-plan") {
         return [];
       }
-      const codingPlanProviderId =
-        getModelProviderFamilySpec(productFamily).teamCodingPlanProviderId;
+      const codingPlanProviderId = getModelProviderFamilySpec(productFamily)
+        .teamCodingPlanProviderId as SidebarUsageCodingPlanProviderId;
       const sourceId = ["team", productFamily, product.productId, organizationId, projectKey]
         .map(encodeURIComponent)
         .join(":") as SidebarUsageCodingPlanSourceId;
@@ -161,6 +166,8 @@ export function resolveSidebarCurrentCodingPlanUsageSource({
     ? resolveModelProviderFamilySpecByProviderId(selectedProviderId)?.id
     : undefined;
   if (!family) return null;
+  // Kimi 的用量不接入 sidebar coding plan 源（无 zhipu 订阅快照通道）。
+  if (!isZhipuModelProviderFamilyId(family)) return null;
   const selection = selections?.[family];
   if (selection?.kind === "team-coding-plan") {
     const teamSource = teamSources.find(
@@ -184,7 +191,8 @@ export function resolveSidebarCurrentCodingPlanUsageSource({
   if (selection?.kind !== "individual-coding-plan") return null;
   const accountAccess = accountAccesses[family];
   if (!accountAccess || accountAccess.mode !== "individual-coding-plan") return null;
-  const providerId = getModelProviderFamilySpec(family).individualCodingPlanProviderId;
+  const providerId = getModelProviderFamilySpec(family)
+    .individualCodingPlanProviderId as SidebarUsageCodingPlanProviderId;
   return { audience: "individual", providerId, sourceId: providerId, accountAccess };
 }
 

@@ -52,6 +52,8 @@ export interface AccountProviderConnectionResolverOptions {
   ) => Promise<string | null>;
   readonly loadAccountIdentity: (family: ProviderFamilyDomain) => Promise<string | null>;
   readonly resolveFamilyAvailability: AccountProviderFamilyAvailabilityResolver;
+  /** Kimi 账号身份按 OAuth provider 读取（kimi / kimi-global）。 */
+  readonly loadKimiAccountIdentity: (oauthProvider: string) => Promise<string | null>;
 }
 
 export interface CodingPlanFamilyAvailabilityResolverOptions {
@@ -152,9 +154,28 @@ export function createAccountProviderConnectionResolver(
     const scopes = new Map<string, string>();
     for (const [providerId, config] of configuredProviders.entries()) {
       const access = config.access;
-      if (access?.type !== "zhipu-account") continue;
+      if (access?.type !== "zhipu-account" && access?.type !== "kimi-account") continue;
       if (!access.accountType || !access.mode) {
         connections.push({ providerId, status: "unavailable" });
+        continue;
+      }
+      if (access.type === "kimi-account") {
+        // Kimi 可用性完全由本地 OAuth 会话推导；无 zhipu 商品权益远端探测。
+        // 所在区域的 OAuth provider 有登录身份即视为 connected。
+        const kimiIdentity = await options.loadKimiAccountIdentity(access.accountType);
+        const kimiAvailable = Boolean(kimiIdentity?.trim());
+        const scope = JSON.stringify([kimiIdentity, access.accountType]);
+        scopes.set(providerId, scope);
+        const resetPrevious =
+          previousScopes.has(providerId) && previousScopes.get(providerId) !== scope;
+        connections.push({
+          providerId,
+          status: kimiAvailable ? "available" : "unavailable",
+          ...(kimiAvailable ? {} : { unavailableReason: "not-connected" as const }),
+          current: settings.providerFamilyDomain === "kimi" && kimiAvailable,
+          connectionKey: createHash("sha256").update(scope).digest("hex"),
+          ...(resetPrevious ? { resetPrevious: true } : {}),
+        });
         continue;
       }
       const selection = settings.selections[access.accountType];
@@ -308,13 +329,32 @@ export async function resolveCurrentAccountAccess(input: {
   readonly access: ZCodeProviderAccountAccess;
   readonly readSettings: () => Promise<AccountProviderConnectionSettings>;
   readonly loadAccountIdentity: (family: ProviderFamilyDomain) => Promise<string | null>;
+  /** Kimi 按 OAuth provider 读登录身份（kimi / kimi-global），可选注入便于测试。 */
+  readonly loadKimiAccountIdentity?: (oauthProvider: string) => Promise<string | null>;
 }): Promise<ZCodeAccountAccess | null> {
   const settings = await input.readSettings();
   const { accountType, mode } = input.access;
+  if (input.access.type === "kimi-account") {
+    // Kimi 无商品选择层；OAuth 会话存在且当前展示域为 kimi 即视为已连接。
+    if (settings.providerFamilyDomain !== "kimi") return null;
+    const identity = input.loadKimiAccountIdentity
+      ? await input.loadKimiAccountIdentity(accountType)
+      : null;
+    if (!identity?.trim()) return null;
+    return {
+      type: "kimi-account",
+      family: "kimi",
+      planKind: "kimi-coding-plan",
+    };
+  }
   if (settings.providerFamilyDomain !== accountType) return null;
   if (mode === "start-plan") {
     if (!(await input.loadAccountIdentity(accountType))?.trim()) return null;
-    return { type: "zhipu-account", family: accountType, planKind: "start-plan" };
+    return {
+      type: "zhipu-account",
+      family: accountType,
+      planKind: "start-plan",
+    };
   }
   const selection = settings.selections[accountType];
   if (!selection) return null;

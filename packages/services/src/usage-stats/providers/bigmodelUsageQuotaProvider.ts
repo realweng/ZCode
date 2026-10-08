@@ -156,7 +156,8 @@ interface TeamPlanContext {
   // Team Plan 用量查询在 zai/bigmodel 两个 family 上对称存在，
   // 但复制团队项目 API Key 的 host、OAuth token key、鉴权 header 都按 family 分离。
   // 这里必须带上 family，下游 resolveTeamPlanProjectApiKey 才能选对 zai/bigmodel 的业务域名和 token。
-  family: ProviderFamilyDomain;
+  // Kimi 没有 Team 商品形态，不使用该上下文。
+  family: "zai" | "bigmodel";
 }
 
 interface CodingPlanResetAuthorization {

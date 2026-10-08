@@ -4,6 +4,8 @@ import {
   buildBigModelCodingPlanPersonalManageUrl,
   BUILTIN_MODEL_PROVIDER_IDS,
   createUuid,
+  KIMI_GLOBAL_PROVIDER_ID,
+  KIMI_PROVIDER_ID,
   type OAuthProviderId,
   ZCODE_ENV,
   ZAI_PROVIDER_ID,
@@ -54,7 +56,9 @@ export type CodingPlanProviderId =
   | typeof BUILTIN_MODEL_PROVIDER_IDS.zaiStartPlan
   | typeof BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan
   | typeof BUILTIN_MODEL_PROVIDER_IDS.bigmodelTeamCodingPlan
-  | typeof BUILTIN_MODEL_PROVIDER_IDS.bigmodelStartPlan;
+  | typeof BUILTIN_MODEL_PROVIDER_IDS.bigmodelStartPlan
+  | typeof BUILTIN_MODEL_PROVIDER_IDS.kimiCodingPlan
+  | typeof BUILTIN_MODEL_PROVIDER_IDS.kimiGlobalCodingPlan;
 
 export type CodingPlanStatus =
   | "disconnected"
@@ -102,6 +106,18 @@ export const CODING_PLAN_PROVIDER_SPECS: CodingPlanProviderSpec[] = [
     label: "BigModel- Coding Plan",
     providerName: "BigModel",
     purchaseUrl: BIGMODEL_CODING_PLAN_PERSONAL_MANAGE_URL,
+  },
+  {
+    id: BUILTIN_MODEL_PROVIDER_IDS.kimiCodingPlan,
+    oauthProviderId: KIMI_PROVIDER_ID,
+    label: "Kimi - Coding Plan",
+    providerName: "Kimi",
+  },
+  {
+    id: BUILTIN_MODEL_PROVIDER_IDS.kimiGlobalCodingPlan,
+    oauthProviderId: KIMI_GLOBAL_PROVIDER_ID,
+    label: "Kimi - Coding Plan",
+    providerName: "Kimi",
   },
 ];
 

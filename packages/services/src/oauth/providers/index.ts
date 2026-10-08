@@ -1,6 +1,13 @@
-import { BIGMODEL_PROVIDER_ID, ZAI_PROVIDER_ID, type ApiClient } from "@zcode/shared";
+import {
+  BIGMODEL_PROVIDER_ID,
+  KIMI_GLOBAL_PROVIDER_ID,
+  KIMI_PROVIDER_ID,
+  ZAI_PROVIDER_ID,
+  type ApiClient,
+} from "@zcode/shared";
 import type { OAuthRuntimeConfig } from "../runtimeConfig.js";
 import { BigModelProviderAdapter } from "./bigmodelProviderAdapter.js";
+import { KimiProviderAdapter } from "./kimiProviderAdapter.js";
 import type { OAuthProviderAdapter } from "./providerAdapter.js";
 import { ZaiProviderAdapter } from "./zaiProviderAdapter.js";
 
@@ -24,6 +31,10 @@ export function createOAuthProviderAdapters(
         break;
       case ZAI_PROVIDER_ID:
         adapters.push(new ZaiProviderAdapter(providerConfig, apiClient));
+        break;
+      case KIMI_PROVIDER_ID:
+      case KIMI_GLOBAL_PROVIDER_ID:
+        adapters.push(new KimiProviderAdapter(providerConfig, apiClient));
         break;
       default:
         // 未知 provider 直接忽略，避免单个配置错误拖垮全部登录能力。

@@ -45,5 +45,7 @@ function resolveProviderIds(provider: OAuthProviderId): {
       codingPlan: BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan,
     };
   }
+  // Kimi 没有独立存储的 coding plan API key（OAuth token 直接作为 Bearer），
+  // 登出时仅刷新账号 provider 视图，无派生凭据可清。
   return null;
 }

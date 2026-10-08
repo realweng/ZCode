@@ -6,14 +6,25 @@ import type {
   OAuthTokenSet,
   OAuthUserProfile,
 } from "@zcode/shared";
-import { BIGMODEL_PROVIDER_ID, isCredentialDecryptError, ZAI_PROVIDER_ID } from "@zcode/shared";
+import {
+  BIGMODEL_PROVIDER_ID,
+  isCredentialDecryptError,
+  KIMI_GLOBAL_PROVIDER_ID,
+  KIMI_PROVIDER_ID,
+  ZAI_PROVIDER_ID,
+} from "@zcode/shared";
 import type { ICredentialService } from "../../credential/credential.js";
 import { createServiceLogger } from "../../logger/serviceLogger.js";
 
 const ACTIVE_PROVIDER_KEY = "oauth:active_provider";
 const LOGIN_ATTRIBUTION_KEY = "oauth:login_attribution";
 const ZCODE_JWT_TOKEN_KEY = "zcodejwttoken";
-const KNOWN_OAUTH_PROVIDER_IDS = [BIGMODEL_PROVIDER_ID, ZAI_PROVIDER_ID] as const;
+const KNOWN_OAUTH_PROVIDER_IDS = [
+  BIGMODEL_PROVIDER_ID,
+  ZAI_PROVIDER_ID,
+  KIMI_PROVIDER_ID,
+  KIMI_GLOBAL_PROVIDER_ID,
+] as const;
 const log = createServiceLogger("oauthCredentialRepo");
 
 interface OAuthCredentialRepoOptions {

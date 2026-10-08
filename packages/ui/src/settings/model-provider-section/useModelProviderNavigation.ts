@@ -507,7 +507,7 @@ function pickFamilyModeNavigationItem(
   selectableNavigationItems: Array<
     Exclude<ModelProviderNavGroup["items"][number], { type: "codingPlanLoading" }>
   >,
-  familyId: "zai" | "bigmodel",
+  familyId: ProviderFamilyDomain,
   connectionSelections: ProviderFamilyConnectionSelectionSettings,
 ): Exclude<ModelProviderNavGroup["items"][number], { type: "codingPlanLoading" }> | null {
   const selection = connectionSelections[familyId];

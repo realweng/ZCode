@@ -9,6 +9,8 @@ import { Loader2Icon, LoaderIcon, TriangleAlertIcon } from "lucide-react";
 import {
   type OAuthProviderMeta,
   BIGMODEL_PROVIDER_ID,
+  KIMI_GLOBAL_PROVIDER_ID,
+  KIMI_PROVIDER_ID,
   TID_LOGIN_USE_API_KEY_BUTTON,
   TID_OAUTH_CANCEL,
   TID_OAUTH_ERROR,
@@ -491,6 +493,9 @@ function getLoginOAuthButtonMessageId(providerId: string): string {
       return "login.oauth.button.zai";
     case BIGMODEL_PROVIDER_ID:
       return "login.oauth.button.bigmodel";
+    case KIMI_PROVIDER_ID:
+    case KIMI_GLOBAL_PROVIDER_ID:
+      return "login.oauth.button.kimi";
     default:
       return "login.oauth.button";
   }
@@ -502,6 +507,10 @@ function getLoginOAuthRegionTagMessageId(providerId: string): string | null {
       return "login.oauth.regionTag.zai";
     case BIGMODEL_PROVIDER_ID:
       return "login.oauth.regionTag.bigmodel";
+    case KIMI_PROVIDER_ID:
+      return "login.oauth.regionTag.kimi";
+    case KIMI_GLOBAL_PROVIDER_ID:
+      return "login.oauth.regionTag.kimiGlobal";
     default:
       return null;
   }
@@ -531,6 +540,10 @@ function getProviderPriority(provider: OAuthProviderMeta): number {
       return 0;
     case BIGMODEL_PROVIDER_ID:
       return 1;
+    case KIMI_PROVIDER_ID:
+      return 2;
+    case KIMI_GLOBAL_PROVIDER_ID:
+      return 3;
     default:
       return 10 + provider.order;
   }

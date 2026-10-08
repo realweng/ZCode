@@ -8,6 +8,8 @@ import type {
 } from "@zcode/shared";
 import {
   getModelProviderFamilySpec,
+  KIMI_GLOBAL_PROVIDER_ID,
+  KIMI_PROVIDER_ID,
   resolveProviderFamilyDomainFromOAuthProvider,
 } from "@zcode/shared";
 import { logger } from "@/logger.js";
@@ -106,6 +108,28 @@ export async function refreshLatestModelProviderFamilySelectionAfterLogin(params
 
   const familySpec = resolveModelProviderFamilySpecFromOAuth(params.provider);
   if (!familySpec) return null;
+
+  // Kimi 没有 Start/Team 商品与订阅权益通道；登录后直接落到 coding plan 连接，
+  // 不触发 zhipu 侧的家权益/团队商品查询。
+  if (params.provider === KIMI_PROVIDER_ID || params.provider === KIMI_GLOBAL_PROVIDER_ID) {
+    const currentSettings = await params.services.settingService.get();
+    const expectedAccountSettings = {
+      providerFamilyDomain: currentSettings.providerFamilyDomain,
+      providerFamilyConnectionSelections: currentSettings.providerFamilyConnectionSelections,
+    };
+    const selection: ModelProviderFamilyConnectionSelection = { kind: "individual-coding-plan" };
+    await params.services.settingService.update(
+      {
+        providerFamilyConnectionSelections: {
+          ...currentSettings.providerFamilyConnectionSelections,
+          [domain]: selection,
+        },
+      },
+      expectedAccountSettings,
+    );
+    return selection;
+  }
+
   // 登录查询也有网络等待，条件写入必须基于查询前的意图，而非回包后的选择。
   const currentSettings = await params.services.settingService.get();
   const expectedAccountSettings = {

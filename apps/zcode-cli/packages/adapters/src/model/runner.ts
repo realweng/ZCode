@@ -147,7 +147,7 @@ export class AiSdkModelAdapter {
     const resolved = {
       ...boundResolution.resolved,
       properties,
-      ...(options.providerConfig.access.type === "zhipu-account"
+      ...(isAccountModelAccess(options.providerConfig.access)
         ? { accountAccess: options.providerConfig.access }
         : {}),
     };
@@ -178,7 +178,7 @@ export class AiSdkModelAdapter {
             }
             return { headersApplied: true, requestAuth };
           }
-        : options.providerConfig.access.type === "zhipu-account"
+        : isAccountModelAccess(options.providerConfig.access)
           ? (contextRefreshRuntimeHeadersBeforeAttempt ??
             (async () => {
               throw new ModelProtocolError(
@@ -212,7 +212,7 @@ export class AiSdkModelAdapter {
               refreshRuntimeHeadersBeforeAttempt: (input) =>
                 refreshRuntimeHeadersBeforeAttempt({
                   ...input,
-                  ...(options.providerConfig.access.type === "zhipu-account"
+                  ...(isAccountModelAccess(options.providerConfig.access)
                     ? { accountAccess: options.providerConfig.access }
                     : {}),
                 }),
@@ -238,7 +238,7 @@ export class AiSdkModelAdapter {
               }),
             ),
             properties,
-            ...(options.providerConfig.access.type === "zhipu-account"
+            ...(isAccountModelAccess(options.providerConfig.access)
               ? { accountAccess: options.providerConfig.access }
               : {}),
           })
@@ -250,7 +250,7 @@ export class AiSdkModelAdapter {
               },
             }),
             properties,
-            ...(options.providerConfig.access.type === "zhipu-account"
+            ...(isAccountModelAccess(options.providerConfig.access)
               ? { accountAccess: options.providerConfig.access }
               : {}),
           });
@@ -343,6 +343,14 @@ function hasRequestAuth(
 ): requestAuth is ModelRequestAuth {
   if (requestAuth?.apiKey?.trim()) return true;
   return Object.values(requestAuth?.headers ?? {}).some((value) => value.trim().length > 0);
+}
+
+/**
+ * 账号型 Provider 判定：zhipu-account 与 kimi-account 都需要 per-attempt 回 Host 解析鉴权。
+ * 普通 api-key 模型的静态鉴权不应被送到 Host 刷新。
+ */
+function isAccountModelAccess(access: RegistryProviderConfig["access"]): boolean {
+  return access.type === "zhipu-account" || access.type === "kimi-account";
 }
 
 function assertSameBoundModel(

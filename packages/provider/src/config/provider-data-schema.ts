@@ -10,6 +10,7 @@ export const providerGroupDataSchema = z.enum([
   "standard-personal",
   "zai-family",
   "bigmodel-family",
+  "kimi-family",
 ]);
 export const zhipuAccountModeDataSchema = z.enum([
   "start-plan",
@@ -52,13 +53,32 @@ export const zhipuAccountAccessDataSchema = z
     type: completeZhipuAccountAccessDataSchema.shape.type,
   })
   .strict();
+
+// Kimi 账号访问：OAuth access token 直接作为模型请求 Bearer，无 zcode JWT 与商品分层。
+export const completeKimiAccountAccessDataSchema = z
+  .object({
+    type: z.literal("kimi-account"),
+    accountType: z.enum(["kimi", "kimi-global"]),
+    mode: z.literal("kimi-coding-plan"),
+    entitled: z.boolean(),
+  })
+  .strict();
+export const kimiAccountAccessDataSchema = z
+  .object({
+    ...sparseShape(completeKimiAccountAccessDataSchema.shape),
+    type: completeKimiAccountAccessDataSchema.shape.type,
+  })
+  .strict();
+
 export const providerAccessDataSchema = z.discriminatedUnion("type", [
   apiKeyAccessDataSchema,
   zhipuAccountAccessDataSchema,
+  kimiAccountAccessDataSchema,
 ]);
 const completeProviderAccessDataSchema = z.discriminatedUnion("type", [
   completeApiKeyAccessDataSchema,
   completeZhipuAccountAccessDataSchema,
+  completeKimiAccountAccessDataSchema,
 ]);
 
 export const completeProviderApiDataSchema = z

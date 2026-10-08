@@ -1,4 +1,5 @@
 import {
+  KimiAccountAccessConfig,
   ProviderConfig,
   ProviderConfigMap,
   ZhipuAccountAccessConfig,
@@ -77,7 +78,9 @@ export function createAccountProviderConfigResolver(
         ...(connection.status === "unknown" ? previous : {}),
         availability:
           connection.status === "unknown" && previous ? previous.availability : connection.status,
-        entitled: access?.type === "zhipu-account" && access.entitled === true,
+        entitled:
+          (access?.type === "zhipu-account" || access?.type === "kimi-account") &&
+          access.entitled === true,
         ...(unavailableReason === undefined ? {} : { unavailableReason }),
         ...(connection.current === undefined ? {} : { current: connection.current }),
         connectionKey: connection.connectionKey,
@@ -96,7 +99,7 @@ export function resolveAccountProviderConfigs(
   const resolved: Array<readonly [ProviderId, ProviderConfig]> = [];
   for (const [providerId, configured] of input.configuredProviders.entries()) {
     const access = configured.access;
-    if (access?.type !== "zhipu-account") continue;
+    if (access?.type !== "zhipu-account" && access?.type !== "kimi-account") continue;
     const connection = connectionByProviderId.get(providerId) ?? {
       providerId,
       status: "unknown" as const,
@@ -109,7 +112,9 @@ export function resolveAccountProviderConfigs(
           providerId,
           new ProviderConfig({
             // 明确空模型是本轮权威结果，不能保留已经失效的旧白名单。
-            access: new ZhipuAccountAccessConfig({ entitled: connection.status === "available" }),
+            access: new ZhipuAccountAccessConfig({
+              entitled: connection.status === "available",
+            }),
             builtinModelIds: models,
           }),
         ]);
@@ -118,14 +123,14 @@ export function resolveAccountProviderConfigs(
       resolved.push([
         providerId,
         new ProviderConfig({
-          access: new ZhipuAccountAccessConfig({ entitled: connection.status === "available" }),
+          access: createAccountEntitlementAccess(access.type, connection.status === "available"),
         }),
       ]);
       continue;
     }
 
     if (connection.status === "unavailable") {
-      resolved.push([providerId, createEntitlementOverlay(false)]);
+      resolved.push([providerId, createEntitlementOverlay(access.type, false)]);
       continue;
     }
 
@@ -133,15 +138,26 @@ export function resolveAccountProviderConfigs(
     if (previous) {
       resolved.push([providerId, previous]);
     } else {
-      resolved.push([providerId, createEntitlementOverlay(false)]);
+      resolved.push([providerId, createEntitlementOverlay(access.type, false)]);
     }
   }
 
   return new ProviderConfigMap(resolved);
 }
 
-function createEntitlementOverlay(entitled: boolean): ProviderConfig {
-  return new ProviderConfig({ access: new ZhipuAccountAccessConfig({ entitled }) });
+function createAccountEntitlementAccess(type: "zhipu-account" | "kimi-account", entitled: boolean) {
+  return type === "kimi-account"
+    ? new KimiAccountAccessConfig({ entitled })
+    : new ZhipuAccountAccessConfig({ entitled });
+}
+
+function createEntitlementOverlay(
+  type: "zhipu-account" | "kimi-account",
+  entitled: boolean,
+): ProviderConfig {
+  return new ProviderConfig({
+    access: createAccountEntitlementAccess(type, entitled),
+  });
 }
 
 function indexConnections(

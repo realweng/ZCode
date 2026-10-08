@@ -5,6 +5,12 @@ export const DEFAULT_BIGMODEL_API_ORIGIN = "https://bigmodel.cn";
 export const DEFAULT_ZAI_OAUTH_ORIGIN = "https://chat.z.ai";
 export const DEFAULT_ZAI_BUSINESS_BASE_URL = "https://api.z.ai";
 export const DEFAULT_ZAI_OAUTH_CLIENT_ID = "client_P8X5CMWmlaRO9gyO-KSqtg";
+export const DEFAULT_KIMI_OAUTH_ORIGIN = "https://auth.kimi.com";
+export const DEFAULT_KIMI_GLOBAL_OAUTH_ORIGIN = "https://auth.kimi.ai";
+export const DEFAULT_KIMI_API_BASE_URL = "https://api.kimi.com/coding/v1";
+export const DEFAULT_KIMI_GLOBAL_API_BASE_URL = "https://api.kimi.ai/coding/v1";
+// Kimi CLI 公开的 device flow client；如服务端开始校验 client 归属，可用 env 覆盖。
+export const DEFAULT_KIMI_OAUTH_CLIENT_ID = "17e5f671-d194-4dfb-9706-5516cb48c098";
 
 // 构建仅注入公开链接；Node 调用方仍可显式传 env，避免读取另一进程的配置。
 declare const __ZCODE_ENDPOINT_ENV__: Record<string, string | undefined> | undefined;
@@ -19,6 +25,9 @@ export function pickProductEndpointEnv(
     "ZAI_BUSINESS_BASE_URL",
     "ZAI_OAUTH_CLIENT_ID",
     "ZAI_OAUTH_APP_ID",
+    "KIMI_OAUTH_ORIGIN",
+    "KIMI_API_BASE_URL",
+    "KIMI_OAUTH_CLIENT_ID",
   ];
   return Object.fromEntries(
     keys.flatMap((key) => (env[key]?.trim() ? [[key, env[key]!.trim()]] : [])),
@@ -61,6 +70,13 @@ export interface RuntimeZaiEndpointEnv {
   ZAI_BUSINESS_BASE_URL?: string;
   ZAI_OAUTH_CLIENT_ID?: string;
   ZAI_OAUTH_APP_ID?: string;
+}
+
+export interface RuntimeKimiEndpointEnv {
+  [key: string]: string | undefined;
+  KIMI_OAUTH_ORIGIN?: string;
+  KIMI_API_BASE_URL?: string;
+  KIMI_OAUTH_CLIENT_ID?: string;
 }
 
 export interface RuntimeProductEndpointEnv
@@ -238,6 +254,34 @@ export function buildRuntimeZaiBusinessUrl(
 ): string {
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
   return `${resolveZaiBusinessBaseUrl(env)}${normalizedPath}`;
+}
+
+export function resolveKimiOAuthOrigin(
+  env: RuntimeKimiEndpointEnv = readProductEndpointEnv(),
+  region: "mainland-cn" | "global" = "mainland-cn",
+): string {
+  // env 覆盖优先用于联调同构环境；默认值按区域区分账号域。
+  return normalizeZCodeEndpointOrigin(
+    readRuntimeEnvValue(env, "KIMI_OAUTH_ORIGIN") ??
+      (region === "global" ? DEFAULT_KIMI_GLOBAL_OAUTH_ORIGIN : DEFAULT_KIMI_OAUTH_ORIGIN),
+  );
+}
+
+export function resolveKimiApiBaseUrl(
+  env: RuntimeKimiEndpointEnv = readProductEndpointEnv(),
+  region: "mainland-cn" | "global" = "mainland-cn",
+): string {
+  const overridden = readRuntimeEnvValue(env, "KIMI_API_BASE_URL");
+  if (overridden) {
+    return overridden;
+  }
+  return region === "global" ? DEFAULT_KIMI_GLOBAL_API_BASE_URL : DEFAULT_KIMI_API_BASE_URL;
+}
+
+export function resolveKimiOAuthClientId(
+  env: RuntimeKimiEndpointEnv = readProductEndpointEnv(),
+): string {
+  return readRuntimeEnvValue(env, "KIMI_OAUTH_CLIENT_ID") ?? DEFAULT_KIMI_OAUTH_CLIENT_ID;
 }
 
 export function resolveRuntimeProductEndpointConfig(

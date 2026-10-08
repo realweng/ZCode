@@ -19,6 +19,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BUILTIN_MODEL_PROVIDER_IDS,
   getModelProviderFamilySpec,
+  isZhipuModelProviderFamilyId,
   resolveModelProviderFamilySpecByProviderId,
   TID_V4_MODEL_CONFIG,
   TID_V4_COMPOSER_INPUT,
@@ -236,6 +237,10 @@ function resolveContextTeamUsageSourceFromEntitlementSnapshot({
   // 从 snapshot.provider.id 反查 family，生成对应前缀。
   const familySpec = resolveModelProviderFamilySpecByProviderId(snapshot.provider?.id ?? "");
   const family: ProviderFamilyDomain = familySpec?.id ?? "bigmodel";
+  // Kimi 没有 Team 商品形态，team 用量上下文只存在于 zhipu 域 family。
+  if (!isZhipuModelProviderFamilyId(family)) {
+    return null;
+  }
   if (!accountAccess) {
     return null;
   }
@@ -251,7 +256,8 @@ function resolveContextTeamUsageSourceFromEntitlementSnapshot({
   ) {
     return null;
   }
-  const codingPlanProviderId = getModelProviderFamilySpec(family).teamCodingPlanProviderId;
+  const codingPlanProviderId = getModelProviderFamilySpec(family)
+    .teamCodingPlanProviderId as SidebarUsageCodingPlanProviderId;
   const sourceId = ["team", family, productId, organizationId, projectId]
     .map(encodeURIComponent)
     .join(":") as SidebarUsageCodingPlanSourceId;

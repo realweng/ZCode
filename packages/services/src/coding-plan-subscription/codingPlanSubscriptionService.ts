@@ -1,4 +1,4 @@
-import type { ApiClient } from "@zcode/shared";
+import type { ApiClient, ProviderFamilyDomain } from "@zcode/shared";
 import type { ICredentialService } from "../credential/credential.js";
 import type { ICodingPlanSubscriptionService } from "./codingPlanSubscription.js";
 import { BigModelCodingPlanSubscriptionProvider } from "./bigmodelCodingPlanSubscriptionProvider.js";
@@ -32,8 +32,9 @@ export function createCodingPlanSubscriptionService(
   const zaiProvider = new ZaiCodingPlanSubscriptionProvider(dependencies);
 
   // 按 family 选择 enterprise 读路径 provider；缺省（含未指定 family 的历史调用）走 bigmodel。
+  // Kimi 没有 enterprise 定价，显式传 kimi 时与缺省一致走 bigmodel 读路径（不会发生真实调用）。
   const resolveEnterprisePricingProvider = (
-    family?: "bigmodel" | "zai",
+    family?: ProviderFamilyDomain,
   ): BigModelCodingPlanSubscriptionProvider => (family === "zai" ? zaiProvider : bigmodelProvider);
 
   return {

@@ -19,6 +19,9 @@ export const providerFamilyConnectionSelectionSettingsSchema = z
   .object({
     zai: providerFamilyConnectionSelectionSchema.optional(),
     bigmodel: providerFamilyConnectionSelectionSchema.optional(),
+    // Kimi 只有 coding plan 一种商品形态，选择恒为 individual-coding-plan；
+    // 出现在 schema 中是为了让 family 索引类型覆盖 kimi 展示域。
+    kimi: providerFamilyConnectionSelectionSchema.optional(),
   })
   .partial();
 

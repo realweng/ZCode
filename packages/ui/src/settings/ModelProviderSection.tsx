@@ -9,6 +9,8 @@ import {
   BUILTIN_MODEL_PROVIDER_IDS,
   DesktopCommandIds,
   isStartPlanModelProviderId,
+  KIMI_GLOBAL_PROVIDER_ID,
+  KIMI_PROVIDER_ID,
   type BuiltinModelProviderId,
   type ModelConnectivityResult,
   type ProviderFamilyConnectionSelection,
@@ -117,6 +119,8 @@ function resolveCodingPlanIntentProviderId(
     case BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan:
     case BUILTIN_MODEL_PROVIDER_IDS.bigmodelTeamCodingPlan:
     case BUILTIN_MODEL_PROVIDER_IDS.bigmodelStartPlan:
+    case BUILTIN_MODEL_PROVIDER_IDS.kimiCodingPlan:
+    case BUILTIN_MODEL_PROVIDER_IDS.kimiGlobalCodingPlan:
       return target.providerId;
     default:
       return null;
@@ -162,6 +166,12 @@ function resolveBuiltinPresetOAuthProvider(
     presetId === BUILTIN_MODEL_PROVIDER_IDS.bigmodelStartPlan
   ) {
     return BIGMODEL_PROVIDER_ID;
+  }
+  if (presetId === BUILTIN_MODEL_PROVIDER_IDS.kimiCodingPlan) {
+    return KIMI_PROVIDER_ID;
+  }
+  if (presetId === BUILTIN_MODEL_PROVIDER_IDS.kimiGlobalCodingPlan) {
+    return KIMI_GLOBAL_PROVIDER_ID;
   }
   return null;
 }

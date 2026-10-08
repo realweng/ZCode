@@ -858,6 +858,48 @@
               "key": "bigmodel"
             }
           }
+        },
+        {
+          "providerId": "account:kimi-coding-plan",
+          "providerName": "Kimi Coding Plan",
+          "config": {
+            "group": "kimi-family",
+            "builtinModelIds": ["kimi-k2-0905-preview", "kimi-k2-turbo-preview"],
+            "access": {
+              "type": "kimi-account",
+              "mode": "kimi-coding-plan",
+              "accountType": "kimi"
+            },
+            "api": {
+              "type": "openai-chat-completions",
+              "baseUrl": "https://api.kimi.com/coding/v1"
+            },
+            "logo": {
+              "type": "builtin",
+              "key": "moonshot-kimi"
+            }
+          }
+        },
+        {
+          "providerId": "account:kimi-global-coding-plan",
+          "providerName": "Kimi Coding Plan",
+          "config": {
+            "group": "kimi-family",
+            "builtinModelIds": ["kimi-k2-0905-preview", "kimi-k2-turbo-preview"],
+            "access": {
+              "type": "kimi-account",
+              "mode": "kimi-coding-plan",
+              "accountType": "kimi-global"
+            },
+            "api": {
+              "type": "openai-chat-completions",
+              "baseUrl": "https://api.kimi.ai/coding/v1"
+            },
+            "logo": {
+              "type": "builtin",
+              "key": "moonshot-kimi"
+            }
+          }
         }
       ]
     },

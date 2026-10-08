@@ -69,7 +69,10 @@ import {
 import {
   BIGMODEL_PROVIDER_ID,
   buildRuntimeZCodeApiUrl,
+  BUILTIN_MODEL_PROVIDER_IDS,
   DEFAULT_ZCODE_MODEL_CONTEXT_BUDGET_STRATEGY,
+  KIMI_GLOBAL_PROVIDER_ID,
+  KIMI_PROVIDER_ID,
   type ProviderFamilyDomain,
   type ZCodeSessionRuntimePreferencesResult,
   ZAI_PROVIDER_ID,
@@ -151,6 +154,11 @@ export function createRemoteWorkspaceServiceCollection(params: {
           access,
           readSettings: readLocalAccountProviderSettings,
           loadAccountIdentity: loadLocalAccountIdentity,
+          loadKimiAccountIdentity: async (oauthProvider) => {
+            if (oauthProvider !== KIMI_PROVIDER_ID && oauthProvider !== KIMI_GLOBAL_PROVIDER_ID)
+              return null;
+            return (await localOAuthCredentialRepo.loadUserProfile(oauthProvider))?.id ?? null;
+          },
         }),
       loadOAuthTokenSet: (providerId) => localOAuthCredentialRepo.loadTokenSet(providerId),
       async loadIndividualPlanApiKey(providerId, family) {
@@ -170,6 +178,15 @@ export function createRemoteWorkspaceServiceCollection(params: {
           credentialService: localCredentialService,
           access,
         }),
+      // desktop-attached remote 只读本机 Kimi OAuth token 快照；刷新由本机正式账号链负责，
+      // 与 resolveProviderApiKey 的只读语义保持一致。
+      resolveKimiOAuthApiKey: async (modelProviderId) => {
+        const oauthProviderId =
+          modelProviderId === BUILTIN_MODEL_PROVIDER_IDS.kimiGlobalCodingPlan
+            ? KIMI_GLOBAL_PROVIDER_ID
+            : KIMI_PROVIDER_ID;
+        return (await localOAuthCredentialRepo.loadTokenSet(oauthProviderId))?.accessToken ?? null;
+      },
     }),
   );
   const localCodingPlanSubscriptionService = createCodingPlanSubscriptionService({

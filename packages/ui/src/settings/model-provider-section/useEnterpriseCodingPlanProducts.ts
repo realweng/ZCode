@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   getModelProviderFamilySpec,
+  isKimiCodingPlanProviderId,
   type CodingPlanStaticTeamProduct,
+  type CodingPlanSubscriptionProviderId,
   type EnterpriseCodingPlanPricingResponse,
   type ProviderFamilyDomain,
 } from "@zcode/shared";
@@ -98,7 +100,13 @@ export function useEnterpriseCodingPlanProducts({
 }) {
   const services = useOptionalServices();
   const service = services?.codingPlanSubscriptionService;
-  const codingPlanProviderId = getModelProviderFamilySpec(family).individualCodingPlanProviderId;
+  const familySpec = getModelProviderFamilySpec(family);
+  const codingPlanProviderId = familySpec.individualCodingPlanProviderId;
+  // 静态团队目录按 zhipu 订阅 provider 索引；Kimi 无订阅通道，按无静态目录处理。
+  const staticCatalogProviderId: CodingPlanSubscriptionProviderId | null =
+    isKimiCodingPlanProviderId(codingPlanProviderId)
+      ? null
+      : (codingPlanProviderId as CodingPlanSubscriptionProviderId);
   const [state, setState] = useState<EnterpriseCodingPlanProductsState>({
     snapshot: null,
     loading: enabled,
@@ -142,14 +150,16 @@ export function useEnterpriseCodingPlanProducts({
         const [staticResult, pricingResult] = await Promise.allSettled([
           service.getStaticTeamProducts(),
           staticOnly
-            ? Promise.resolve<EnterpriseCodingPlanPricingResponse>({ productList: [] })
+            ? Promise.resolve<EnterpriseCodingPlanPricingResponse>({
+                productList: [],
+              })
             : service.getEnterprisePricing({ authenticated, family }),
         ]);
         const staticProducts =
-          staticResult.status === "fulfilled"
-            ? Object.prototype.hasOwnProperty.call(staticResult.value, codingPlanProviderId)
-              ? staticResult.value[codingPlanProviderId]
-              : undefined
+          staticResult.status === "fulfilled" &&
+          staticCatalogProviderId &&
+          Object.prototype.hasOwnProperty.call(staticResult.value, staticCatalogProviderId)
+            ? staticResult.value[staticCatalogProviderId]
             : undefined;
         const raw: EnterpriseCodingPlanPricingResponse =
           pricingResult.status === "fulfilled" ? pricingResult.value : { productList: [] };

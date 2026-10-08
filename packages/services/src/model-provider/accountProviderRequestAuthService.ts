@@ -52,6 +52,12 @@ interface AccountProviderRequestAuthServiceOptions {
   resolveTeamPlanApiKey(
     access: Extract<ZCodeAccountAccess, { planKind: "team-coding-plan" }>,
   ): Promise<string | null>;
+  /**
+   * Kimi 请求期 Bearer 解析：返回未过期的 access token。
+   * 由装配层包装 OAuthService 实现（含临期/过期时的静默刷新），
+   * 本服务不直接持有刷新语义，保持鉴权决策与 token 生命周期的单一所有者分离。
+   */
+  resolveKimiOAuthApiKey(modelProviderId: string): Promise<string | null>;
 }
 
 class AccountProviderRequestAuthService implements AccountRequestAuthResolver {
@@ -73,6 +79,12 @@ class AccountProviderRequestAuthService implements AccountRequestAuthResolver {
     if (access.planKind === "start-plan") {
       const tokenSet = await this.#options.loadOAuthTokenSet(resolveOAuthProviderId(access.family));
       return { apiKey: requireApiKey(tokenSet?.zcodeJwtToken, providerId) };
+    }
+
+    if (access.planKind === "kimi-coding-plan") {
+      // Kimi 的 OAuth access token 直接作为模型请求 Bearer（无 zcode JWT、无独立 API key）。
+      const apiKey = await this.#options.resolveKimiOAuthApiKey(providerId);
+      return { apiKey: requireApiKey(apiKey, providerId) };
     }
 
     if (access.planKind === "individual-coding-plan") {

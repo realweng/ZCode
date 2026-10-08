@@ -2,6 +2,7 @@ import { buildStartPlanEntitlementOptions } from "@/lib/startPlanEntitlementOpti
 import { useCallback } from "react";
 import {
   getModelProviderFamilySpec,
+  isZhipuModelProviderFamilyId,
   normalizeProviderFamilyDomain,
   resolvePlanIdentitySnapshot,
   type PlanIdentitySnapshot,
@@ -23,10 +24,13 @@ export function usePlanIdentitySnapshot(
   usageStatsService?: IUsageStatsService,
 ): () => PlanIdentitySnapshot {
   const normalizedDomain = normalizeProviderFamilyDomain(providerFamilyDomain);
+  // Plan 身份快照面向 zhipu 订阅体系（Start/Individual/Team）；Kimi 域没有对应商品，不参与解析。
+  const zhipuDomain =
+    normalizedDomain && isZhipuModelProviderFamilyId(normalizedDomain) ? normalizedDomain : null;
   const providerSettingsRead = useProviderSettingsView();
   const providerSettingsView =
     providerSettingsRead.state.status === "ready" ? providerSettingsRead.state.view : null;
-  const familySpec = normalizedDomain ? getModelProviderFamilySpec(normalizedDomain) : null;
+  const familySpec = zhipuDomain ? getModelProviderFamilySpec(zhipuDomain) : null;
   const codingPlanProviderId = familySpec
     ? connectionSelection?.kind === "team-coding-plan"
       ? familySpec.teamCodingPlanProviderId
@@ -38,13 +42,13 @@ export function usePlanIdentitySnapshot(
     codingPlanProviderId,
   );
   const codingPlanEntitlement = useUsageEntitlementWithService(usageStatsService, {
-    enabled: Boolean(normalizedDomain && codingPlanRefreshFingerprint),
+    enabled: Boolean(zhipuDomain && codingPlanRefreshFingerprint),
     includeSubscription: true,
     preferredProviderId: codingPlanProviderId,
-    accountAccess: normalizedDomain
+    accountAccess: zhipuDomain
       ? {
           type: "zhipu-account",
-          family: normalizedDomain,
+          family: zhipuDomain,
           ...(connectionSelection?.kind === "team-coding-plan"
             ? ({
                 planKind: "team-coding-plan",

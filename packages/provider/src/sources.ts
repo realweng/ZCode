@@ -1,4 +1,5 @@
 import {
+  KimiAccountAccessConfig,
   ProviderConfig,
   ProviderConfigMap,
   ProviderTemplateMap,
@@ -36,18 +37,30 @@ export function createFailClosedAccountProviderConfigSnapshot(
   config: ProviderConfigSnapshot,
 ): AccountProviderConfigSnapshot {
   const unentitledProviders = new ProviderConfigMap(
-    config.zcodeBuiltinProviders.entries().flatMap(([providerId, provider]) =>
-      provider.access?.type === "zhipu-account"
-        ? ([
-            [
-              providerId,
-              new ProviderConfig({
-                access: new ZhipuAccountAccessConfig({ entitled: false }),
-              }),
-            ],
-          ] as const)
-        : [],
-    ),
+    config.zcodeBuiltinProviders.entries().flatMap(([providerId, provider]) => {
+      const access = provider.access;
+      if (access?.type === "zhipu-account") {
+        return [
+          [
+            providerId,
+            new ProviderConfig({
+              access: new ZhipuAccountAccessConfig({ entitled: false }),
+            }),
+          ] as const,
+        ];
+      }
+      if (access?.type === "kimi-account") {
+        return [
+          [
+            providerId,
+            new ProviderConfig({
+              access: new KimiAccountAccessConfig({ entitled: false }),
+            }),
+          ] as const,
+        ];
+      }
+      return [];
+    }),
   );
   return createAccountProviderConfigSnapshot(config.zcodeBuiltinRevision, unentitledProviders);
 }

@@ -11,6 +11,12 @@ export const BIGMODEL_PROVIDER_ID = "bigmodel" as const;
 /** 内置 ZAI provider id */
 export const ZAI_PROVIDER_ID = "zai" as const;
 
+/** 内置 Kimi provider id（中国大陆） */
+export const KIMI_PROVIDER_ID = "kimi" as const;
+
+/** 内置 Kimi provider id（Global） */
+export const KIMI_GLOBAL_PROVIDER_ID = "kimi-global" as const;
+
 /** 凭据解密失败错误前缀 */
 export const CREDENTIAL_DECRYPT_ERROR_PREFIX = "凭据解密失败：" as const;
 
@@ -56,6 +62,8 @@ function readCredentialErrorMessage(error: unknown): string {
 export type OAuthProviderId =
   | typeof BIGMODEL_PROVIDER_ID
   | typeof ZAI_PROVIDER_ID
+  | typeof KIMI_PROVIDER_ID
+  | typeof KIMI_GLOBAL_PROVIDER_ID
   | (string & { readonly __oauthProviderBrand?: never });
 
 /** Provider 展示元信息 */

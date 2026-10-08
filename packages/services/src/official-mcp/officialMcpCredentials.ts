@@ -171,6 +171,8 @@ function resolveSelectedPlan(
 ): { ok: true; plan: SelectedPlan } | { ok: false; reason: OfficialMcpAuthFailureReason } {
   if (
     !access ||
+    // Kimi/Start Plan 没有 Server MCP 权益通道；planKind 先行收窄，保证后续 family 是 zhipu 域。
+    (access.planKind !== "individual-coding-plan" && access.planKind !== "team-coding-plan") ||
     access.family !== selectedProvider.access.accountType ||
     (selectedProvider.access.mode === "team-coding-plan"
       ? access.planKind !== "team-coding-plan"

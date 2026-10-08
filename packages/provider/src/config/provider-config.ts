@@ -4,6 +4,7 @@ import type { z } from "zod";
 import {
   completeApiKeyAccessDataSchema,
   completeZhipuAccountAccessDataSchema,
+  completeKimiAccountAccessDataSchema,
   completeProviderApiDataSchema,
   completeProviderConfigDataSchema,
   type providerApiTypeDataSchema,
@@ -13,6 +14,7 @@ import {
   type providerLogoDataSchema,
   type apiKeyAccessDataSchema,
   type zhipuAccountAccessDataSchema,
+  type kimiAccountAccessDataSchema,
   type providerAccessDataSchema,
   type providerApiDataSchema,
   type providerConfigDataSchema,
@@ -111,7 +113,52 @@ export class ZhipuAccountAccessConfig extends ConfigOverlay<ZhipuAccountAccessCo
   }
 }
 
-export type ProviderAccessConfig = ApiKeyAccessConfig | ZhipuAccountAccessConfig;
+export type KimiAccountAccessConfigInput = Omit<KimiAccountAccessConfigObject, "type">;
+
+export type KimiAccountAccessConfigObject = Readonly<z.infer<typeof kimiAccountAccessDataSchema>>;
+
+export class KimiAccountAccessConfig extends ConfigOverlay<KimiAccountAccessConfig> {
+  readonly type = "kimi-account" as const;
+  readonly accountType?: KimiAccountAccessConfigInput["accountType"];
+  readonly mode?: KimiAccountAccessConfigInput["mode"];
+  readonly entitled?: KimiAccountAccessConfigInput["entitled"];
+
+  constructor(input: KimiAccountAccessConfigInput = {}) {
+    super();
+    this.accountType = input.accountType;
+    this.mode = input.mode;
+    this.entitled = input.entitled;
+    Object.freeze(this);
+  }
+
+  overlay(next: KimiAccountAccessConfig): KimiAccountAccessConfig {
+    return new KimiAccountAccessConfig({
+      accountType: this.overlayValue(this.accountType, next.accountType),
+      mode: this.overlayValue(this.mode, next.mode),
+      entitled: this.overlayValue(this.entitled, next.entitled),
+    });
+  }
+
+  validateComplete(path: readonly string[] = []): readonly ConfigValidationIssue[] {
+    return validateConfigSchema(completeKimiAccountAccessDataSchema, this.toJSON(), path);
+  }
+
+  toJSON(): KimiAccountAccessConfigObject {
+    return {
+      type: this.type,
+      ...objectWithoutUndefined({
+        accountType: this.accountType,
+        mode: this.mode,
+        entitled: this.entitled,
+      }),
+    };
+  }
+}
+
+export type ProviderAccessConfig =
+  | ApiKeyAccessConfig
+  | ZhipuAccountAccessConfig
+  | KimiAccountAccessConfig;
 
 export type ProviderAccessConfigObject = Readonly<z.infer<typeof providerAccessDataSchema>>;
 
@@ -505,6 +552,8 @@ function overlayProviderAccess(
       return current.overlay(next as ApiKeyAccessConfig);
     case "zhipu-account":
       return current.overlay(next as ZhipuAccountAccessConfig);
+    case "kimi-account":
+      return current.overlay(next as KimiAccountAccessConfig);
   }
 }
 

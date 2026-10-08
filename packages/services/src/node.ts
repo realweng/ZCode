@@ -505,6 +505,9 @@ import {
   isStartPlanModelProviderId,
   OFF_PEAK_PROVIDER_IDS,
   BIGMODEL_PROVIDER_ID,
+  BUILTIN_MODEL_PROVIDER_IDS,
+  KIMI_GLOBAL_PROVIDER_ID,
+  KIMI_PROVIDER_ID,
   type ProviderFamilyDomain,
   type ServiceAuthorityMode,
   resolveRuntimeZCodeEndpointOrigin,
@@ -1498,6 +1501,11 @@ export function createLocalServices(options: {
           access,
           readSettings: readAccountProviderSettings,
           loadAccountIdentity,
+          loadKimiAccountIdentity: async (oauthProvider) => {
+            if (oauthProvider !== KIMI_PROVIDER_ID && oauthProvider !== KIMI_GLOBAL_PROVIDER_ID)
+              return null;
+            return (await oauthCredentialRepo.loadUserProfile(oauthProvider))?.id ?? null;
+          },
         }),
       loadOAuthTokenSet: (providerId) => oauthCredentialRepo.loadTokenSet(providerId),
       async loadIndividualPlanApiKey(providerId, family) {
@@ -1512,6 +1520,15 @@ export function createLocalServices(options: {
       },
       resolveTeamPlanApiKey: (access) =>
         resolveAccountTeamPlanRuntimeApiKey({ apiClient, credentialService, access }),
+      // Kimi：OAuth access token 直接作为模型请求 Bearer。
+      resolveKimiOAuthApiKey: async (modelProviderId) => {
+        const oauthProviderId =
+          modelProviderId === BUILTIN_MODEL_PROVIDER_IDS.kimiGlobalCodingPlan
+            ? KIMI_GLOBAL_PROVIDER_ID
+            : KIMI_PROVIDER_ID;
+        const tokenSet = await oauthService.resolveFreshOAuthTokenSet(oauthProviderId);
+        return tokenSet?.accessToken ?? null;
+      },
     }),
   );
   const providerConfigLog = createServiceLogger("provider-config");
@@ -1576,6 +1593,12 @@ export function createLocalServices(options: {
       apiClient,
       credentialService,
     }),
+    loadKimiAccountIdentity: async (oauthProvider) => {
+      // Kimi 账号身份即 OAuth user_info 的 id；无登录时返回 null。
+      if (oauthProvider !== KIMI_PROVIDER_ID && oauthProvider !== KIMI_GLOBAL_PROVIDER_ID)
+        return null;
+      return (await oauthCredentialRepo.loadUserProfile(oauthProvider))?.id ?? null;
+    },
   });
   const accountProviderRuntimeLog = createServiceLogger("account-provider-runtime");
   const modelSelectionConfiguredDefaultSource = new NodeModelSelectionConfigRepository({

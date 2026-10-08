@@ -5,6 +5,8 @@ import {
   formatLogPrefix,
   type ApiClient,
   BIGMODEL_PROVIDER_ID,
+  KIMI_GLOBAL_PROVIDER_ID,
+  KIMI_PROVIDER_ID,
   ZAI_PROVIDER_ID,
   type OAuthCallbackResult,
   type OAuthCachedSessionRestoreResult,
@@ -56,6 +58,13 @@ interface PendingState {
     pollToken: string;
     pollUrl: string;
   };
+  /** Device Code Flow（Kimi）：与 zcode polling 互斥存在。 */
+  device?: {
+    deviceCode: string;
+    expiresAt: number;
+    nextPollAt: number;
+    pollIntervalMs: number;
+  };
 }
 
 interface OAuthFlowEnvelope {
@@ -105,6 +114,13 @@ function resolveInactiveOAuthProvider(provider: OAuthProviderId): OAuthProviderI
   }
   if (provider === BIGMODEL_PROVIDER_ID) {
     return ZAI_PROVIDER_ID;
+  }
+  // Kimi 两个区域互斥：登录 CN 时清 Global，反之亦然。
+  if (provider === KIMI_PROVIDER_ID) {
+    return KIMI_GLOBAL_PROVIDER_ID;
+  }
+  if (provider === KIMI_GLOBAL_PROVIDER_ID) {
+    return KIMI_PROVIDER_ID;
   }
   return null;
 }
@@ -437,7 +453,10 @@ export class OAuthService implements IOAuthService {
 
   private async runPendingSessionCompletion(
     pending: PendingState,
-    complete: () => Promise<{ tokenSet: OAuthTokenSet; profile: OAuthUserProfile }>,
+    complete: () => Promise<{
+      tokenSet: OAuthTokenSet;
+      profile: OAuthUserProfile;
+    }>,
     preserveAttribution?: () => Promise<void>,
   ): Promise<OAuthCallbackResult | null> {
     const completion = this.runSessionMutation(async () => {
@@ -592,6 +611,13 @@ export class OAuthService implements IOAuthService {
   }
 
   async startOAuthWithPolling(provider: OAuthProviderId): Promise<OAuthStartResponse> {
+    const deviceAdapter = this.getEnabledAdapter(provider);
+    if (deviceAdapter.startDeviceFlow) {
+      // Kimi 等 Device Code Flow provider：直连 provider 的 OAuth host，
+      // 不经过 zcode.z.ai init，也没有深链回调。
+      return this.startDeviceOAuthFlow(deviceAdapter);
+    }
+
     if (provider !== ZAI_PROVIDER_ID && provider !== BIGMODEL_PROVIDER_ID) {
       return this.startOAuthInternal(provider);
     }
@@ -699,11 +725,15 @@ export class OAuthService implements IOAuthService {
   }
 
   async pollPendingOAuth(): Promise<OAuthCallbackResult | null> {
+    const pending = this.pendingState;
+    if (pending?.device) {
+      return this.pollPendingDeviceFlow(pending);
+    }
+
     const apiClient = this.apiClient;
     if (!apiClient) {
       return null;
     }
-    const pending = this.pendingState;
     const polling = pending?.polling;
     if (!pending || !polling) {
       return null;
@@ -815,7 +845,161 @@ export class OAuthService implements IOAuthService {
         return { tokenSet, profile };
       });
       if (result?.kind === "session") {
-        serviceLog.info("OAuth polling flow completed", { provider: pending.provider });
+        serviceLog.info("OAuth polling flow completed", {
+          provider: pending.provider,
+        });
+      }
+      return result;
+    } catch (error) {
+      if (this.pendingState === pending) this.clearPendingState();
+      throw error;
+    }
+  }
+
+  private async startDeviceOAuthFlow(adapter: OAuthProviderAdapter): Promise<OAuthStartResponse> {
+    const provider = adapter.providerId;
+    // 与同窗口快速连点其它 provider 保持一致的并发收口：先让旧 flow 失效再开新 flow。
+    const startGeneration = ++this.oauthFlowStartGeneration;
+    this.oauthFlowStartProvider = provider;
+    this.clearPendingState();
+
+    const start = await adapter.startDeviceFlow!({
+      providerId: provider,
+      state: "",
+      redirectUri: adapter.redirectUri,
+      now: this.now,
+    });
+    if (this.oauthFlowStartGeneration !== startGeneration) {
+      throw new Error("OAuth flow 已被新的登录请求替换");
+    }
+    this.oauthFlowStartProvider = null;
+
+    // device flow 没有服务端 state；本地生成仅用于与 pending flow 关联。
+    const state = randomBytes(32).toString("hex");
+    const remainingLifetimeMs = start.expiresAt - this.now();
+    if (remainingLifetimeMs <= 0) {
+      throw new Error("Kimi device authorization 响应已过期");
+    }
+    const timeoutMs = Math.min(OAUTH_TIMEOUT_MS, remainingLifetimeMs);
+    const timeout = setTimeout(() => {
+      const pending = this.pendingState;
+      if (pending?.state === state && pending.device?.deviceCode === start.deviceCode) {
+        this.clearPendingState();
+      }
+    }, timeoutMs);
+    this.pendingState = {
+      state,
+      provider,
+      timeout,
+      phase: "awaiting-attribution-or-code",
+      device: {
+        deviceCode: start.deviceCode,
+        expiresAt: start.expiresAt,
+        nextPollAt: this.now(),
+        pollIntervalMs: start.pollIntervalMs,
+      },
+    };
+
+    serviceLog.info("OAuth device flow started", {
+      expiresInMs: timeoutMs,
+      pollIntervalMs: start.pollIntervalMs,
+      provider,
+    });
+    return { provider, authorizeUrl: start.verificationUriComplete, state };
+  }
+
+  private async pollPendingDeviceFlow(pending: PendingState): Promise<OAuthCallbackResult | null> {
+    const device = pending.device!;
+    const adapter = this.getEnabledAdapter(pending.provider);
+    if (!adapter.pollDeviceToken) {
+      this.clearPendingState();
+      throw new Error("OAuth device flow 配置缺失");
+    }
+    if (this.now() >= device.expiresAt) {
+      this.clearPendingState();
+      throw new Error("OAuth device flow 已过期");
+    }
+    if (this.now() < device.nextPollAt) {
+      return null;
+    }
+    device.nextPollAt = this.now() + device.pollIntervalMs;
+
+    let pollResult;
+    try {
+      pollResult = await adapter.pollDeviceToken(device.deviceCode, {
+        providerId: pending.provider,
+        state: pending.state,
+        redirectUri: adapter.redirectUri,
+        now: this.now,
+      });
+    } catch (error) {
+      if (this.pendingState !== pending) return null;
+      if (
+        error instanceof ApiError &&
+        error.status &&
+        error.status >= 400 &&
+        error.status < 500 &&
+        error.status !== 408 &&
+        error.status !== 429
+      ) {
+        if (this.pendingState === pending) this.clearPendingState();
+        throw error;
+      }
+      // 与 zcode polling 相同语义：单次断网或 5xx 不立即取消 flow，下一轮继续。
+      serviceLog.debug("OAuth device flow polling request will retry", {
+        error: error instanceof Error ? error.message : String(error),
+        provider: pending.provider,
+      });
+      return null;
+    }
+    if (this.pendingState !== pending) {
+      return null;
+    }
+
+    if (pollResult.status === "pending") {
+      return null;
+    }
+    if (pollResult.status === "slow-down") {
+      device.pollIntervalMs += pollResult.nextIntervalMs;
+      return null;
+    }
+    if (pollResult.status === "expired") {
+      this.clearPendingState();
+      throw new Error("OAuth device flow 已过期");
+    }
+    if (pollResult.status === "denied") {
+      this.clearPendingState();
+      throw new Error("OAuth device flow 授权被拒绝");
+    }
+
+    try {
+      const result = await this.runPendingSessionCompletion(pending, async () => {
+        const tokenSet = pollResult.tokenSet;
+        let profile: OAuthUserProfile = {
+          id: "unknown",
+          username: "user",
+          displayName: "User",
+        };
+        if (adapter.fetchUserInfo) {
+          try {
+            profile = await this.runWithAdapterError(adapter, () =>
+              adapter.fetchUserInfo!(tokenSet, {
+                providerId: pending.provider,
+                state: pending.state,
+                redirectUri: adapter.redirectUri,
+                now: this.now,
+              }),
+            );
+          } catch {
+            // 获取用户信息失败不阻塞登录，与深链回调路径语义一致。
+          }
+        }
+        return { tokenSet, profile };
+      });
+      if (result?.kind === "session") {
+        serviceLog.info("OAuth device flow completed", {
+          provider: pending.provider,
+        });
       }
       return result;
     } catch (error) {
@@ -961,6 +1145,60 @@ export class OAuthService implements IOAuthService {
     );
   }
 
+  /** Kimi access token 临期阈值：请求期早于该时间窗触发静默刷新，避免请求中过期。 */
+  private static readonly KIMI_REFRESH_SKEW_MS = 5 * 60 * 1000;
+
+  /**
+   * 读取 Kimi provider 的可用 OAuth token 集合：access token 临期/过期时先静默刷新。
+   * 刷新失败（invalid_grant/401）时由调用方的 401 归因链路处理登出；这里返回 null
+   * 表示没有可用凭据，让请求期按未授权处理。
+   */
+  async resolveFreshOAuthTokenSet(provider: OAuthProviderId): Promise<OAuthTokenSet | null> {
+    const tokenSet = await this.repo.loadTokenSet(provider);
+    if (!tokenSet?.accessToken) {
+      return null;
+    }
+
+    const adapter = this.getEnabledAdapter(provider);
+    const expiresAt = tokenSet.expiresAt;
+    const isFresh =
+      typeof expiresAt !== "number" || this.now() + OAuthService.KIMI_REFRESH_SKEW_MS < expiresAt;
+    if (isFresh || !adapter.refreshToken || !tokenSet.refreshToken) {
+      return tokenSet;
+    }
+
+    // 临期/过期：走与 refreshToken 相同的串行写回路径，生成代数不一致时自动放弃写回。
+    const generation = this.oauthSessionGeneration;
+    try {
+      const refreshed = await this.runWithAdapterError(adapter, () =>
+        adapter.refreshToken!(tokenSet, {
+          providerId: provider,
+          state: "",
+          redirectUri: adapter.redirectUri,
+          now: this.now,
+        }),
+      );
+      await this.runSessionMutation(async () => {
+        if (
+          this.oauthSessionGeneration !== generation ||
+          (await this.credentialService.load(`oauth:${provider}:access_token`)) !==
+            tokenSet.accessToken
+        )
+          return;
+        await this.repo.saveTokenSet(provider, refreshed);
+      });
+      return refreshed;
+    } catch (error) {
+      serviceLog.warn("Kimi OAuth token 静默刷新失败", {
+        provider,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      // 刷新失败仍返回旧 token，让模型请求真实发出后由 401 归因决定是否登出；
+      // 避免网络抖动导致的临时刷新失败把用户直接打到未登录。
+      return tokenSet;
+    }
+  }
+
   async refreshToken(provider?: OAuthProviderId): Promise<void> {
     const generation = this.oauthSessionGeneration;
     const targetProvider = await this.resolveProvider(provider);
@@ -1019,6 +1257,14 @@ export class OAuthService implements IOAuthService {
     );
   }
 
+  /**
+   * 释放 pending flow 的超时定时器。Host 进程常驻时由 clearPendingState 在正常路径调用；
+   * 测试进程需要显式 dispose，否则 5 分钟 pending 定时器会阻止 node:test 退出。
+   */
+  dispose(): void {
+    this.clearPendingState();
+  }
+
   private async logoutActiveSession(isCurrent?: () => Promise<boolean>): Promise<boolean> {
     const result = await this.runSessionMutation(async () => {
       // 异步分类的 true 不是清理授权；凭据复核与清理必须和登录写入共用队列。
@@ -1040,7 +1286,9 @@ export class OAuthService implements IOAuthService {
       } catch (error) {
         if (!isCurrent) throw error;
         // 凭据已经清理，派生配置失败不能吞掉原有过期提示；手动退出仍保留原错误语义。
-        serviceLog.warn("Unauthorized session provider cleanup failed", { error });
+        serviceLog.warn("Unauthorized session provider cleanup failed", {
+          error,
+        });
       }
     }
     return true;
