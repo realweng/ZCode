@@ -52,6 +52,9 @@ jobs:
             electron-cache: ~/.cache/electron
             builder-cache: ~/.cache/electron-builder
     env:
+      # 正式发版身份：productName 用 ZCode（不带 Preview/_TEST 后缀），安装包指向生产后端。
+      # 未设置时仓库 fail-safe 默认按 test 处理（见 desktop-product-identity.mjs）。
+      ZCODE_ENV: production
       # mac 签名默认关闭（secrets 未配置时为空串，走未签名打包）。
       # 配置 ZCODE_ENABLE_MAC_SIGN=1 + APPLE_SIGNING_IDENTITY 后自动启用；公证流水线不在本仓库范围。
       ZCODE_ENABLE_MAC_SIGN: ${{ secrets.ZCODE_ENABLE_MAC_SIGN }}
