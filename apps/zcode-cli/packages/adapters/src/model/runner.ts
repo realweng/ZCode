@@ -348,9 +348,17 @@ function hasRequestAuth(
 /**
  * 账号型 Provider 判定：zhipu-account 与 kimi-account 都需要 per-attempt 回 Host 解析鉴权。
  * 普通 api-key 模型的静态鉴权不应被送到 Host 刷新。
+ * 用交集收窄而非收窄 ProviderAccessConfig：adapters 独立 tsc 构建时，类型谓词落在
+ * RegistryProviderConfig["access"] 上会把 kimi-account 错并入 else 分支的 api-key 窄类型，
+ * 使 accountAccess 携带非法的 ApiKeyAccessConfig。
  */
-function isAccountModelAccess(access: RegistryProviderConfig["access"]): boolean {
-  return access.type === "zhipu-account" || access.type === "kimi-account";
+function isAccountModelAccess(
+  access: RegistryProviderConfig["access"],
+): access is Extract<
+  NonNullable<RegistryProviderConfig["access"]>,
+  { readonly type: "zhipu-account" | "kimi-account" }
+> {
+  return access?.type === "zhipu-account" || (access?.type as string) === "kimi-account";
 }
 
 function assertSameBoundModel(
