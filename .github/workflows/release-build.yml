@@ -1,0 +1,173 @@
+# 发版打包流水线：只在 push v* tag 时自动触发（见 .agents/specs/release-pipeline.md）。
+# 三平台原生 runner 并行打包桌面安装包，全部成功后把安装包与 sha256 校验文件挂到 tag 对应的 GitHub Release。
+name: Release Build
+
+on:
+  push:
+    tags:
+      - "v*"
+  # 人工调试入口；不改变"自动触发只认 tag"的语义。
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: bundle ${{ matrix.target }}
+    runs-on: ${{ matrix.runs-on }}
+    timeout-minutes: 90
+    strategy:
+      # 一个平台失败不取消其他平台，便于定位单侧问题。
+      fail-fast: false
+      matrix:
+        include:
+          # macOS arm64 在 arm64 runner 原生打包；不签名（与本地打包一致）。
+          - target: mac-arm64
+            runs-on: macos-latest
+            bundle-os: mac
+            bundle-arch: arm64
+            bundle-targets: ""
+            electron-cache: ~/Library/Caches/electron
+            builder-cache: ~/Library/Caches/electron-builder
+          # Windows 打包配置带平台一致性断言，必须在 win32 原生构建。
+          - target: win-x64
+            runs-on: windows-latest
+            bundle-os: win
+            bundle-arch: x64
+            bundle-targets: ""
+            electron-cache: ~\AppData\Local\electron\Cache
+            builder-cache: ~\AppData\Local\electron-builder\Cache
+          # Linux 只出 deb：electron-builder 自带 fpm 即可产出，
+          # 全量目标中的 rpm 还要求构建机提供 rpmbuild/xz，且四格式全打显著拉长 CI 时长。
+          - target: linux-deb-x64
+            runs-on: ubuntu-latest
+            bundle-os: linux
+            bundle-arch: x64
+            bundle-targets: deb
+            electron-cache: ~/.cache/electron
+            builder-cache: ~/.cache/electron-builder
+    env:
+      # mac 签名默认关闭（secrets 未配置时为空串，走未签名打包）。
+      # 配置 ZCODE_ENABLE_MAC_SIGN=1 + APPLE_SIGNING_IDENTITY 后自动启用；公证流水线不在本仓库范围。
+      ZCODE_ENABLE_MAC_SIGN: ${{ secrets.ZCODE_ENABLE_MAC_SIGN }}
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      CSC_NAME: ${{ secrets.CSC_NAME }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # build-metadata 记录 commit id；发版场景保留完整历史与 tag 信息。
+          fetch-depth: 0
+
+      # 多平台 supportedArchitectures 让 node_modules 携带全部平台产物，叠加构建与 deb 产物，
+      # Ubuntu runner 默认可用磁盘偏紧；预先清理预装但不用的 SDK 争取余量。
+      - name: Free disk space
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          df -h /
+
+      # 从 package.json 的 packageManager 字段读取锁定的 pnpm 版本。
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Cache electron toolchain
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ matrix.electron-cache }}
+            ${{ matrix.builder-cache }}
+          key: electron-${{ matrix.target }}-${{ hashFiles('packages/desktop/package.json') }}
+          restore-keys: |
+            electron-${{ matrix.target }}-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # 打包入口唯一：bundle 内部依次执行 prepare:runtime-assets → build →
+      # electron-builder（含镜像回退重试）→ 运行时依赖机械校验 → 体积审计。
+      - name: Bundle desktop installer
+        shell: bash
+        env:
+          BUNDLE_OS: ${{ matrix.bundle-os }}
+          BUNDLE_ARCH: ${{ matrix.bundle-arch }}
+          BUNDLE_TARGETS: ${{ matrix.bundle-targets }}
+        run: |
+          pnpm bundle:desktop -- --os "$BUNDLE_OS" --arch "$BUNDLE_ARCH" ${BUNDLE_TARGETS:+--targets "$BUNDLE_TARGETS"}
+
+      - name: Collect installers and checksums
+        shell: bash
+        env:
+          STAGING_DIR: staging
+          CHECKSUM_FILE: SHA256SUMS-${{ matrix.target }}.txt
+        run: |
+          mkdir -p "$STAGING_DIR"
+          shopt -s nullglob
+          for ext in dmg zip exe deb AppImage rpm pkg.tar.zst; do
+            for f in packages/desktop/dist/*."$ext"; do
+              cp -v "$f" "$STAGING_DIR/"
+            done
+          done
+          if [ -z "$(ls -A "$STAGING_DIR" 2>/dev/null)" ]; then
+            echo "no installer artifacts found in packages/desktop/dist" >&2
+            ls -la packages/desktop/dist >&2 || true
+            exit 1
+          fi
+          cd "$STAGING_DIR"
+          CHECKSUM_FILE="$CHECKSUM_FILE" node -e '
+            const { createHash } = require("node:crypto");
+            const { createReadStream, readdirSync, writeFileSync } = require("node:fs");
+            const { pipeline } = require("node:stream/promises");
+            (async () => {
+              const lines = [];
+              for (const name of readdirSync(".").sort()) {
+                // 安装包可达数 GB，逐文件流式哈希，避免 readFileSync 整读撑爆 runner 内存。
+                const hash = createHash("sha256");
+                await pipeline(createReadStream(name), hash);
+                lines.push(`${hash.digest("hex")}  ${name}`);
+              }
+              writeFileSync(process.env.CHECKSUM_FILE, lines.join("\n") + "\n");
+            })();
+          '
+          cat "$CHECKSUM_FILE"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: zcode-desktop-${{ matrix.target }}
+          path: staging/*
+          if-no-files-found: error
+
+  release:
+    name: Attach installers to GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # 仅此 job 需要写权限创建/更新 Release；build job 保持只读（最小权限）。
+    permissions:
+      contents: write
+    # workflow_dispatch 调试运行（非 tag）没有可挂载的 Release。
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          pattern: zcode-desktop-*
+          merge-multiple: true
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/**
+          fail_on_unmatched_files: true
+          generate_release_notes: true

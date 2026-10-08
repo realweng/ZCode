@@ -254,6 +254,7 @@ function printHelp() {
 参数:
   --os, -o <mac|win|linux>     目标操作系统，默认 mac
   --arch, -a <x64|arm64>       目标 CPU 架构，默认 arm64
+  --targets <a,b,...>          限定 electron-builder 目标格式（如 deb），默认全量
   --skip-prepare               跳过 prepare:runtime-assets
   --skip-build                 跳过 pnpm build
   --dry-run                    只打印最终命令，不执行打包
@@ -262,6 +263,7 @@ function printHelp() {
 环境变量:
   ZCODE_TARGET_OS              与 --os 等价
   ZCODE_TARGET_ARCH            与 --arch 等价
+  ZCODE_TARGETS                与 --targets 等价
 `);
 }
 
@@ -281,10 +283,26 @@ function normalizeArch(rawArch) {
   return normalizedArch;
 }
 
+function normalizeTargets(rawTargets) {
+  if (rawTargets === null || rawTargets === undefined || rawTargets.trim() === "") {
+    return [];
+  }
+
+  const targets = rawTargets
+    .split(",")
+    .map((target) => target.trim())
+    .filter(Boolean);
+  if (targets.length === 0 || targets.some((target) => target.startsWith("-"))) {
+    throw new Error(`不支持的目标格式列表: ${rawTargets}`);
+  }
+  return targets;
+}
+
 function parseArgs(argv) {
   const options = {
     os: process.env.ZCODE_TARGET_OS ?? null,
     arch: process.env.ZCODE_TARGET_ARCH ?? null,
+    targets: process.env.ZCODE_TARGETS ?? null,
     skipPrepare: process.env.ZCODE_SKIP_PREPARE === "1",
     skipBuild: process.env.ZCODE_SKIP_BUILD === "1",
     dryRun: false,
@@ -340,6 +358,17 @@ function parseArgs(argv) {
       continue;
     }
 
+    if (arg === "--targets") {
+      options.targets = argv[index + 1] ?? null;
+      index += 1;
+      continue;
+    }
+
+    if (arg.startsWith("--targets=")) {
+      options.targets = arg.slice("--targets=".length);
+      continue;
+    }
+
     if (arg.startsWith("-")) {
       throw new Error(`不支持的参数: ${arg}`);
     }
@@ -360,6 +389,7 @@ function parseArgs(argv) {
   return {
     os: resolvedOs,
     arch: resolvedArch,
+    targets: normalizeTargets(options.targets),
     skipPrepare: options.skipPrepare,
     skipBuild: options.skipBuild,
     dryRun: options.dryRun,
@@ -702,17 +732,29 @@ function verifyPackagedRuntimeDependencies(os, arch) {
 }
 
 async function main() {
-  const { os, arch, skipPrepare, skipBuild, dryRun } = parseArgs(process.argv.slice(2));
+  const { os, arch, targets, skipPrepare, skipBuild, dryRun } = parseArgs(process.argv.slice(2));
+  // --targets 追加在平台参数之后（如 `--linux deb`），供 CI 只构建单一格式：
+  // deb 走 electron-builder 自带 fpm 即可产出，而全量目标里的 rpm 还要求构建机提供 rpmbuild/xz，
+  // 且四种格式全打会显著拉长 CI 时长。默认不传保持全量目标，本地行为不变。
   const buildArgs = [
     "exec",
     "electron-builder",
     "--config",
     "electron-builder.config.js",
     osBuilderFlagMap[os],
+    ...targets,
     archBuilderFlagMap[arch],
+    // CI 在 git tag 上运行时 electron-builder 会隐式启用 onTag 发布（PublishManager 的
+    // "Implicit publishing triggered by git tag" 分支），向配置中的 generic publish 占位地址
+    // （localhost）上传产物并必然失败，把整个打包判为失败。显式 never 让打包与发布解耦：
+    // 产物上传统一由 CI 的 release job 挂载到 GitHub Release。本地无 CI/tag 环境本就不发布，行为不变。
+    "--publish",
+    "never",
   ];
 
-  console.log(`[bundle] target=${os}/${arch}`);
+  console.log(
+    `[bundle] target=${os}/${arch}${targets.length > 0 ? ` formats=${targets.join(",")}` : ""}`,
+  );
   console.log(`[bundle] skipPrepare=${skipPrepare} skipBuild=${skipBuild}`);
 
   const buildEnv = {
