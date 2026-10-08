@@ -4,8 +4,12 @@
 
 - 主对话每个工作段的「工作中 N 分 N 秒」行，右缘对齐显示实时吞吐 `xx.x tok/s`。
 - **两个数值来源，显示优先级**：
-  1. **流式估算 `~xx.x tok/s`（带 `~` 前缀）**：流式输出（含思考）期间实时更新。基于 renderer 已收到的当前运行段 reasoning/assistantText 增量，按与 CLI `estimateTokens` 相同的公式（中文双权重 ÷ `ESTIMATED_TOKEN_CHAR_DIVISOR`）换算，滑动窗口约 4 秒取斜率；样本跨度 <800ms、增量非正或最新样本静默 >2s（工具执行/请求间隙）时不显示。
-  2. **精确值 `xx.x tok/s`**：最近一次**已完成**模型请求的 `outputTokens / (durationMs - timeToFirstContentMs)`（`calculateOutputTps`，与开发者工具面板 TPS 列同源同口径）。估算静默回落时接管显示。
+  1. **流式估算 `~xx.x tok/s`（带 `~` 前缀）**：流式输出（含思考）期间实时更新。取当前**正在流式**的行（正文/思考按 `state === "streaming"`，工具入参按 `status === "inputStreaming"`）的文本，按与 CLI `estimateTokens` 相同的公式（中文双权重 ÷ `ESTIMATED_TOKEN_CHAR_DIVISOR`）换算成 token。
+     - **口径为累计平均**：`(当前 token - 起表 token) / (now - 起表时刻)`，300ms tick 重算。累计分母覆盖整段时长，突发到达的 token 只让分子一次性增加，因此不会像短窗口斜率那样算出数万 tok/s（参考实现：pi-web 的 `tps = tokens / elapsed`，从流开始计时）。
+     - **起表规则**：新流开始（正在流式的行集合变化）、文本回缩（投影重建）或单次增量超过 12000 token（snapshot resync / 断流恢复重开行导致新旧并存）时重启测量；起表那一刻已有的 token 只作基线、不参与分子，避免首批 token 被整段算成假尖峰。
+     - **不发布条件**：起表不足 500ms、增量为零、或最新增量静默超过 2s（工具执行/请求间隙）——此时回落到精确值。
+     - token 估算走增量缓存（前缀未变只算新增后缀），避免长回复每次 delta 重算全文退化成 O(n²)。
+  2. **精确值 `xx.x tok/s`**：最近一次**可信**模型请求的 `outputTokens / (durationMs - timeToFirstContentMs)`（`calculateOutputTps`，与开发者工具面板 TPS 列同源同口径）。**解码窗口 <100ms 的 round 视为突发到达（代理/网络整包缓冲后一次送达，窗口塌缩），跳过并回退到最近一条窗口达标的 round**；开发者面板继续显示原始值用于诊断。估算静默回落时接管显示。
 - 仅 `workStatus.state === "running"` 时显示；段完成后随「已工作 N」切换一并消失。
 - 无事实时不渲染：两个来源都缺席时整段隐藏，绝不显示 `0 tok/s`。
 - 状态面板 Agents 分区的子 agent 运行走目前只显示来源 2（子会话行级增量不进父会话 renderer）；子会话详情窗格内的「工作中」行与主对话同组件，两个来源都生效。

@@ -85,7 +85,7 @@ import type {
 } from "@/v4/conversationTurnRenderUnits.js";
 import { formatConversationWorkDuration } from "@/v4/conversationWorkDuration.js";
 import {
-  useSegmentStreamingText,
+  resolveSegmentStreamingContent,
   useStreamingThroughput,
 } from "@/v4/conversationStreamingThroughput.js";
 import { formatTokensPerSecond, useSessionThroughput } from "@/hooks/useSessionThroughput.js";
@@ -592,12 +592,13 @@ function AssistantHistoryStatus({
     workspacePath: context.workspacePath,
   });
   // 流式期间（含思考）优先显示实时估算：精确值只在请求完成时产生，单次长回复
-  // 中途不会刷新。估算来自 renderer 已收到的 reasoning/text 增量，带 ~ 前缀展示；
-  // 字符流静默（工具执行/请求间隙）超过窗口后自动回落到下方的精确值。
-  const segmentStreamingText = useSegmentStreamingText(segment.assistantWorkRows);
+  // 中途不会刷新。估算取自正在流式的行，按累计平均（累计 token / 累计时长）计算，
+  // 带 ~ 前缀展示；字符流静默（工具执行/请求间隙）超过窗口后自动回落到精确值。
+  const segmentStreamingContent = resolveSegmentStreamingContent(segment.assistantWorkRows);
   const streamingTokensPerSecond = useStreamingThroughput({
     enabled: isRunning,
-    text: segmentStreamingText,
+    contentKey: segmentStreamingContent.key,
+    text: segmentStreamingContent.text,
   });
   const isEstimate = streamingTokensPerSecond !== null;
   const throughputTokensPerSecond = isEstimate ? streamingTokensPerSecond : tokensPerSecond;

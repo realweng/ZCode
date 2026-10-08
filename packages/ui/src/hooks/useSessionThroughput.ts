@@ -3,14 +3,32 @@ import type { SessionDebugSnapshot } from "@zcode/shared";
 import { useSessionDebug } from "@/hooks/useSessionDebug.js";
 
 /**
- * 最近一次已完成模型请求的输出吞吐。只认 rounds 末条：更早的值代表更早的请求，
- * 回退展示会把旧事实冒充成当前事实；末条吞吐未知（null）时保持缺席。
+ * 解码窗口的可信下限。响应被代理/网络整包缓冲后一次到达时，
+ * durationMs - TTFT 会塌缩到几十毫秒以内，此时 outputTokens / 窗口 会算出
+ * 数万 tok/s 的假尖峰（实测环境：Clash 类代理的 SSE 缓冲）。低于该窗口的
+ * round 不作为展示事实；开发者面板继续显示原始值以便诊断。
+ */
+export const MIN_RELIABLE_GENERATION_DURATION_MS = 100;
+
+/**
+ * 最近一次**可信**模型请求的输出吞吐。从末尾向前找第一条解码窗口达标的
+ * round；突发到达的 round 被跳过而不是冒充当前事实。找不到可信 round 或
+ * 其吞吐未知（null）时保持缺席。
  */
 export function resolveLatestTokensPerSecond(
   rounds: readonly SessionDebugSnapshot["rounds"][number][],
 ): number | null {
-  const latest = rounds.at(-1);
-  return latest?.tokensPerSecond ?? null;
+  for (let index = rounds.length - 1; index >= 0; index -= 1) {
+    const round = rounds[index]!;
+    if (
+      round.generationDurationMs !== null &&
+      round.generationDurationMs < MIN_RELIABLE_GENERATION_DURATION_MS
+    ) {
+      continue;
+    }
+    return round.tokensPerSecond ?? null;
+  }
+  return null;
 }
 
 export function formatTokensPerSecond(locale: string, tokensPerSecond: number): string {
