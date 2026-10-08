@@ -149,6 +149,9 @@ jobs:
           name: zcode-desktop-${{ matrix.target }}
           path: staging/*
           if-no-files-found: error
+          # 调试产物一天后自动过期，免得手动清理；tag 发版的正式安装包
+          # 由 release job 即时转存到 GitHub Release，不受此保留期影响。
+          retention-days: 1
 
   release:
     name: Attach installers to GitHub Release
