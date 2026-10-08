@@ -15,7 +15,8 @@ ZCode is an AI coding workspace with desktop, browser, and terminal interfaces. 
 
 ## Updates
 
-- 2026-10-8: Updated to ZCode v100.0.6 (fixes tok/s spikes; streaming estimate now uses a cumulative average).
+- 2026-10-8: Updated to ZCode v100.0.7 (fixes tok/s spikes; streaming estimate now uses a cumulative average).
+- 2026-10-8: Updated to ZCode v100.0.6.
 - 2026-10-8: Updated to ZCode v100.0.5 (end-to-end verification of the mac auto-update path).
 - 2026-10-8: Updated to ZCode v100.0.4 (mac auto-update now installs via bundle replacement; fixes unsigned builds failing to install updates).
 - 2026-10-8: Updated to ZCode v100.0.3 (released to verify the GitHub Releases auto-update path).
