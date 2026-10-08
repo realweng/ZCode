@@ -84,6 +84,7 @@ import type {
   ConversationTurnWorkSegment,
 } from "@/v4/conversationTurnRenderUnits.js";
 import { formatConversationWorkDuration } from "@/v4/conversationWorkDuration.js";
+import { formatTokensPerSecond, useSessionThroughput } from "@/hooks/useSessionThroughput.js";
 import { ConversationTurnRow, resolveAssistantCopyText } from "@/v4/ConversationTurnRow.js";
 import { ConversationHookDetailsAction } from "@/v4/ConversationHookDetailsAction.js";
 import { toolCallRowToLegacyNode } from "@/v4/toolCallRowAdapter.js";
@@ -565,9 +566,11 @@ function OffPeakTurnCards({
 function AssistantHistoryStatus({
   segment,
   open,
+  context,
 }: {
   segment: ConversationTurnWorkSegment;
   open: boolean;
+  context: ConversationRowRenderContext;
 }) {
   const { intl, locale } = useZCodeIntl();
   const durationLabel = formatConversationWorkDuration(
@@ -575,6 +578,15 @@ function AssistantHistoryStatus({
     intl,
     locale,
   );
+  const isRunning = segment.workStatus?.state === "running";
+  const { tokensPerSecond } = useSessionThroughput({
+    // 只有 running 段轮询吞吐；已完成段的「已工作 N」不回填终值，避免把
+    // 轮询期外的旧事实留在历史行上。
+    enabled: isRunning,
+    sessionId: context.sessionId,
+    workspaceIdentity: context.workspaceIdentity,
+    workspacePath: context.workspacePath,
+  });
   const label =
     segment.workStatus?.state === "interrupted"
       ? intl.formatMessage({ id: "chat.history.stopped" })
@@ -585,7 +597,7 @@ function AssistantHistoryStatus({
           : intl.formatMessage({ id: "chat.history.worked" });
 
   return (
-    <div className="flex w-full border-b border-[var(--color-border)]/50 pb-2">
+    <div className="flex w-full items-center border-b border-[var(--color-border)]/50 pb-2">
       <CollapsibleTrigger asChild>
         <button
           type="button"
@@ -605,6 +617,17 @@ function AssistantHistoryStatus({
           ) : null}
         </button>
       </CollapsibleTrigger>
+      {isRunning && tokensPerSecond !== null ? (
+        // 右缘对齐的实时吞吐：口径 = 最近一次已完成模型请求的输出 tok/s（与
+        // 开发者工具面板 TPS 同源）。无事实（首个请求未完成/解码时长未知）时整段缺席。
+        <span
+          data-testid="chat-working-throughput"
+          title={intl.formatMessage({ id: "chat.history.workingThroughputTitle" })}
+          className="ml-auto shrink-0 pl-2 text-ui-base tabular-nums text-foreground-subtle"
+        >
+          {formatTokensPerSecond(locale, tokensPerSecond)} tok/s
+        </span>
+      ) : null}
     </div>
   );
 }
@@ -754,13 +777,15 @@ function ConversationWorkSegmentFlow({
 
         return (
           <Fragment key={itemKey}>
-            {showHistoryStatus ? <AssistantHistoryStatus segment={segment} open={open} /> : null}
+            {showHistoryStatus ? (
+              <AssistantHistoryStatus segment={segment} open={open} context={context} />
+            ) : null}
             {content}
           </Fragment>
         );
       })}
       {shouldShowHistoryStatus && firstAssistantFlowItemIndex < 0 ? (
-        <AssistantHistoryStatus segment={segment} open={open} />
+        <AssistantHistoryStatus segment={segment} open={open} context={context} />
       ) : null}
     </Collapsible>
   );

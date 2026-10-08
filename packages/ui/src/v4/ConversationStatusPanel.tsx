@@ -76,6 +76,7 @@ import {
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card.js";
 import { ControlHintTooltip } from "@/ControlHintTooltip.js";
 import { formatBackgroundTaskElapsedLabel } from "@/BackgroundTaskElapsedLabel.js";
+import { formatTokensPerSecond, useSessionThroughput } from "@/hooks/useSessionThroughput.js";
 import { GitActionMenu } from "@/GitActionMenu.js";
 import { GitBranchSwitcher } from "@/GitBranchSwitcher.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
@@ -964,6 +965,39 @@ function buildRunningSubagentOpenRequest({
   };
 }
 
+/**
+ * 运行中子 agent 的实时吞吐（该子会话自己的最近一次模型请求 tok/s）。
+ * 旧 CLI 没有子会话 session/debug 观测时查询失败，hook 返回 null，本组件整体缺席。
+ */
+function SubagentThroughputLabel({
+  childSessionId,
+  workspaceIdentity,
+  workspacePath,
+}: {
+  childSessionId: string;
+  workspaceIdentity?: string;
+  workspacePath: string;
+}) {
+  const { intl, locale } = useZCodeIntl();
+  const { tokensPerSecond } = useSessionThroughput({
+    enabled: true,
+    sessionId: childSessionId,
+    workspaceIdentity,
+    workspacePath,
+  });
+  if (tokensPerSecond === null) return null;
+  return (
+    <span
+      data-testid="chat-subagent-throughput"
+      data-child-session-id={childSessionId}
+      title={intl.formatMessage({ id: "chat.history.workingThroughputTitle" })}
+      className="shrink-0 text-ui-base tabular-nums text-[var(--color-foreground-subtle)]"
+    >
+      {formatTokensPerSecond(locale, tokensPerSecond)} tok/s
+    </span>
+  );
+}
+
 function RunningStatusItem({
   now,
   onOpenBackgroundBash,
@@ -1325,6 +1359,8 @@ function SubagentStatusSection({
   separated,
   title,
   subagents,
+  workspaceIdentity,
+  workspacePath,
 }: {
   endedSubagentCount: number;
   onCancelBackgroundWork?: (workId: string) => void;
@@ -1337,6 +1373,8 @@ function SubagentStatusSection({
   separated: boolean;
   title: string;
   subagents: readonly ConversationStatusPanelRunningSubagent[];
+  workspaceIdentity?: string;
+  workspacePath: string;
 }) {
   const { intl } = useZCodeIntl();
   const [now, setNow] = useState(() => Date.now());
@@ -1433,6 +1471,11 @@ function SubagentStatusSection({
                       intl.formatMessage,
                     )}
                   </span>
+                  <SubagentThroughputLabel
+                    childSessionId={subagent.childSessionId}
+                    workspaceIdentity={workspaceIdentity}
+                    workspacePath={workspacePath}
+                  />
                   {subagent.controlWorkId && subagent.cancellable !== false ? (
                     <RunningWorkCancelButton
                       workId={subagent.controlWorkId}
@@ -2052,6 +2095,8 @@ function ConversationStatusPanelImpl({
                 rootSessionId={rootSessionId}
                 onOpenSubagentSession={onOpenSubagentSession}
                 onOpenSubagentDirectory={onOpenSubagentDirectory}
+                workspaceIdentity={workspaceIdentity}
+                workspacePath={workspacePath}
               />
             ) : null}
           </div>

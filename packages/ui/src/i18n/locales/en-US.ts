@@ -4617,6 +4617,7 @@ const enUS: Record<string, string> = {
   "chat.message.time.yesterday": "Yesterday {time}",
   "chat.message.retry": "Retry",
   "chat.history.workingFor": "Working for {duration}",
+  "chat.history.workingThroughputTitle": "Output throughput of the latest completed model request",
   "chat.history.workedFor": "Worked for {duration}",
   "chat.history.worked": "Worked",
   "chat.history.stopped": "Stopped",

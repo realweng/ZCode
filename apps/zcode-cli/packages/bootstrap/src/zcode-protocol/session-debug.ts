@@ -24,6 +24,8 @@ const observations = new WeakMap<SessionRecord, Observation>();
 const MAX_HEADER_COUNT = 32;
 const MAX_HEADER_VALUE_LENGTH = 512;
 const MAX_MESSAGE_LENGTH = 2048;
+const MAX_DETACHED_CHILD_OBSERVATIONS = 16;
+const detachedChildObservations = new Map<string, Observation>();
 
 function emptySnapshot(sessionId: string): SessionDebugSnapshot {
   return { sessionId, rounds: [], networkEntries: [], cache: null };
@@ -49,30 +51,73 @@ function token(value: number | undefined): number | undefined {
   return value !== undefined && Number.isFinite(value) && value >= 0 ? value : undefined;
 }
 
+function createObservation(sessionId: string): Observation {
+  return {
+    snapshot: emptySnapshot(sessionId),
+    seenEvents: new Set(),
+    completedRequests: new Set(),
+    hasUnknownCacheUsage: false,
+  };
+}
+
 export function observeSessionDebug(record: SessionRecord, event: SessionEvent): void {
   if (
     event.type !== SessionEventType.ModelNetworkStatus ||
     String(event.sessionId) !== record.app.sessionId
   )
     return;
+  let observation = observations.get(record);
+  if (!observation) {
+    observation = createObservation(record.app.sessionId);
+    observations.set(record, observation);
+  }
+  applySessionDebugEvent(observation, record.app.sessionId, event);
+}
+
+/**
+ * subagent child 的模型请求事件不会经过任何父 record（server-operations 按 sessionId
+ * 提前分流进 v4 detached live session），session/debug 因此查不到子会话吞吐。
+ * 子会话观测与父会话同构：同样只记 querySource=main_turn 的 completed round，
+ * 供状态面板 Agents 行与子会话详情窗格轮询。
+ */
+export function observeDetachedChildSessionDebug(sessionId: string, event: SessionEvent): void {
+  if (event.type !== SessionEventType.ModelNetworkStatus) return;
+  let observation = detachedChildObservations.get(sessionId);
+  if (!observation) {
+    // child 是一次性 session，观测只服务打开中的窗格与运行行；FIFO 有界，
+    // 不随会话生命周期挂到进程退出。
+    if (detachedChildObservations.size >= MAX_DETACHED_CHILD_OBSERVATIONS) {
+      const oldest = detachedChildObservations.keys().next().value;
+      if (oldest !== undefined) detachedChildObservations.delete(oldest);
+    }
+    observation = createObservation(sessionId);
+    detachedChildObservations.set(sessionId, observation);
+  }
+  applySessionDebugEvent(observation, sessionId, event);
+}
+
+export function readDetachedChildSessionDebug(sessionId: string): SessionDebugSnapshot | undefined {
+  return detachedChildObservations.get(sessionId)?.snapshot;
+}
+
+function applySessionDebugEvent(
+  observation: Observation,
+  sessionId: string,
+  event: SessionEvent,
+): void {
+  if (
+    event.type !== SessionEventType.ModelNetworkStatus ||
+    String(event.sessionId) !== sessionId
+  )
+    return;
   const payload = event.payload as ModelNetworkStatusPayload;
   const mapped = zcodeTaskNetworkDebugStatusFromPayload({
-    taskId: record.app.sessionId,
+    taskId: sessionId,
     traceId: event.traceId,
     eventId: String(event.id),
     payload: { ...payload, model: { providerId: payload.providerId, modelId: payload.modelId } },
   });
   if (!mapped) return;
-  let observation = observations.get(record);
-  if (!observation) {
-    observation = {
-      snapshot: emptySnapshot(record.app.sessionId),
-      seenEvents: new Set(),
-      completedRequests: new Set(),
-      hasUnknownCacheUsage: false,
-    };
-    observations.set(record, observation);
-  }
   if (!remember(observation.seenEvents, String(event.id))) return;
   const { type: _type, taskId: _taskId, eventId: _eventId, inputId: _inputId, ...entry } = mapped;
   const parsedAt = Date.parse(payload.timestamp);
@@ -156,5 +201,11 @@ export function querySessionDebug(
   rawParams: unknown,
 ): SessionDebugSnapshot {
   const params = sessionDebugParamsSchema.parse(rawParams);
-  return readSessionDebug(requireSession(context, params.sessionId));
+  // 父会话优先走活跃 record；subagent child 没有 record，落在 detached 观测上。
+  // 两者都没有时交给 requireSession 抛出带诊断日志的 sessionUnavailable。
+  const record = context.sessions.get(params.sessionId);
+  if (record) return readSessionDebug(record);
+  const childSnapshot = readDetachedChildSessionDebug(params.sessionId);
+  if (childSnapshot) return childSnapshot;
+  return readSessionDebug(requireSession(context, params.sessionId, { operation: "sessionDebug" }));
 }

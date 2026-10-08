@@ -4320,6 +4320,7 @@ const zhCN: Record<string, string> = {
   "chat.message.time.yesterday": "昨天 {time}",
   "chat.message.retry": "重试",
   "chat.history.workingFor": "工作中 {duration}",
+  "chat.history.workingThroughputTitle": "最近一次已完成模型请求的输出吞吐",
   "chat.history.workedFor": "已工作 {duration}",
   "chat.history.worked": "已处理",
   "chat.history.stopped": "已停止",

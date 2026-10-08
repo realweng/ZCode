@@ -1,5 +1,5 @@
 /* eslint-disable max-lines -- ZCode Protocol 的 session/workspace 方法共享同一个 server context 与 snapshot helpers，迁移期先集中维护。 */
-import { observeSessionDebug } from "./session-debug.js";
+import { observeDetachedChildSessionDebug, observeSessionDebug } from "./session-debug.js";
 import {
   TASK_LIST_SESSION_TYPES,
   isTaskListSessionType,
@@ -3031,6 +3031,9 @@ export function onSessionEvent(
       event,
       record.app.sessionId,
     );
+    // 子会话的吞吐观测与聊天投影并行：child 事件不经过任何父 record，
+    // 不在这里分流的话 session/debug 永远查不到 subagent 的 tok/s。
+    observeDetachedChildSessionDebug(String(event.sessionId), event);
     return;
   }
   // record.updatedAt 是 sessions-index 的 lastActivityAt 事实源（v4-bridge
