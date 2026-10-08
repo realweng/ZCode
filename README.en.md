@@ -15,6 +15,7 @@ ZCode is an AI coding workspace with desktop, browser, and terminal interfaces. 
 
 ## Updates
 
+- 2026-10-8: Updated to ZCode v100.0.3 (released to verify the GitHub Releases auto-update path).
 - 2026-10-8: Updated to ZCode v100.0.2 (update source switched to this repository's GitHub Releases).
 - 2026-10-8: Updated to ZCode v100.0.1.
 - 2026-9-23: Updated to ZCode v3.14.3.
