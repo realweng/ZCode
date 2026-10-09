@@ -1,6 +1,10 @@
 import { z } from "zod";
 import { modelConfigDataSchema } from "@zcode/shared/model-config";
-import { providerConfigDataSchema, zhipuAccountAccessDataSchema } from "./provider-data-schema.js";
+import {
+  kimiAccountAccessDataSchema,
+  providerConfigDataSchema,
+  zhipuAccountAccessDataSchema,
+} from "./provider-data-schema.js";
 import { ModelConfig, ModelConfigRules } from "./model-config.js";
 import {
   ApiKeyAccessConfig,
@@ -24,10 +28,19 @@ import {
   type ProviderTemplateConfigRuleData,
 } from "./rule-data-schema.js";
 
+// Bug 根因：账号 Overlay 信封只认 zhipu-account，kimi 条目会让整封账号配置解析失败
+// （Host→CLI provider/updateAccountConfig 全灭，与线上 kimi 登录后 RPC 全灭同型）。
+// 账号变体新增时必须同步扩展这里的变体集合。
 const accountProviderConfigSchema = providerConfigDataSchema
   .pick({ builtinModelIds: true })
   .extend({
-    access: zhipuAccountAccessDataSchema.pick({ type: true, entitled: true }).nullable().optional(),
+    access: z
+      .discriminatedUnion("type", [
+        zhipuAccountAccessDataSchema.pick({ type: true, entitled: true }),
+        kimiAccountAccessDataSchema.pick({ type: true, entitled: true }),
+      ])
+      .nullable()
+      .optional(),
   });
 
 export function parseProviderConfigMap(input: unknown): ProviderConfigMap {

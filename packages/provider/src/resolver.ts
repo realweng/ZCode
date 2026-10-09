@@ -246,8 +246,11 @@ export class ProviderConfigResolver {
         personalIdsInOrder,
         config.modelOrder ?? [],
       );
+      // Bug 根因：非 zhipu 一律视为已授权，kimi 的 entitled:false 被忽略，
+      // 未登录时 kimi 模型仍被发布为可执行（fail-closed 失效）。账号型变体统一走 entitled 门禁。
       const accessEntitled =
-        config.access?.type !== "zhipu-account" || config.access.entitled === true;
+        (config.access?.type !== "zhipu-account" && config.access?.type !== "kimi-account") ||
+        config.access.entitled === true;
       // 账号权益与当前连接是两件事。非当前账号仍保留设置展示，不向普通 Registry 发布模型。
       // Off-Peak 不定义 current，沿用其独立调度、隐藏和鉴权规则。
       const accountCurrent = input.accountStates?.[providerId]?.current !== false;

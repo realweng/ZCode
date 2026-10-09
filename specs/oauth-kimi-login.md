@@ -98,3 +98,14 @@ runtime(agent)             zcodeAgentService            accountProviderRequestAu
 6. `refresh_token` 失效(401/invalid_grant)→ 401 归因登出,UI 提示重新登录。
 7. Kimi 登录态下登录 BigModel(或反向)→ 旧 provider 凭据被清理,`active_provider` 指向新 provider。
 8. 登录后重启 App → 会话按缓存恢复,无需重新登录。
+
+## 修正：双账号域一致性补齐（kimi-account）
+
+初版接入只覆盖了协议层 union schema 与鉴权链，配置/解析/门禁/设置四层存在只认 `zhipu-account` 的漏网，登录 Kimi 后账号链路失效（与线上 100.0.8 的 `Invalid input: expected "zhipu-account"` 同型）。修正后的不变量：
+
+1. 账号 Overlay 信封（`parseAccountProviderConfigMap`）必须同时接受 zhipu/kimi 两类 `{type, entitled}` 条目；新增账号变体时必须同步扩展该集合（`packages/provider/src/config/schema.ts`）。
+2. 账号约束型判定（`isAccountConstrainedProvider`）= zhipu + kimi 两类；连接指向账号提供方不得抛错（`packages/provider/src/account-provider-resolution.ts`）。
+3. `providerFamilyDomain` 枚举包含 `"kimi"`；登录写入与磁盘恢复都不能因枚举缺失失败或静默回退（`packages/shared/src/validationAppSettings.ts`）。
+4. Registry 门禁对两类账号都走 `entitled`：`accessEntitled = 非账号型 || entitled === true`，未授权账号不得发布可执行模型（`packages/provider/src/resolver.ts`）。
+
+回归测试：`packages/provider/test/accountProviderConfigMap.test.ts`、`packages/provider/test/accountProviderResolution.test.ts`、`packages/provider/test/registryResolverAccountEntitlement.test.ts`（真实内置配置驱动）、`packages/shared/test/validationAppSettings.test.ts`。

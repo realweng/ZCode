@@ -54,7 +54,9 @@ export const integratedTerminalShellSelectionSchema = z.discriminatedUnion("mode
     path: nonEmptyStringSchema,
   }),
 ]);
-const providerFamilyDomainSchema = z.enum(["zai", "bigmodel"]);
+// Bug 根因：Kimi OAuth 登录成功后会写 providerFamilyDomain="kimi"，枚举缺 kimi 导致
+// 登录回调抛 ZodError；磁盘已存 kimi 时完整设置 safeParse 失败并被静默回退为默认值。
+const providerFamilyDomainSchema = z.enum(["zai", "bigmodel", "kimi"]);
 
 export const postUpdateReleaseNotesPayloadSchema = z.object({
   version: nonEmptyStringSchema,

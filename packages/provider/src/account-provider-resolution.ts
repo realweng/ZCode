@@ -182,7 +182,9 @@ function indexConnections(
 }
 
 function isAccountConstrainedProvider(config: ProviderConfig): boolean {
-  return config.access?.type === "zhipu-account";
+  // Bug 根因：kimi-account 提供方未被算作 Account 约束型，indexConnections 对 kimi 连接
+  // 直接抛错，整轮账号解析失败（首轮 fail-closed、之后只剩旧快照）。账号型 = zhipu + kimi。
+  return config.access?.type === "zhipu-account" || config.access?.type === "kimi-account";
 }
 
 function normalizeModelIds(values: readonly ModelId[] | null | undefined): readonly ModelId[] {
