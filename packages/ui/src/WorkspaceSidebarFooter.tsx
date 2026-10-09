@@ -1,8 +1,10 @@
 /* oxlint-disable eslint(max-lines) -- footer 聚合账户、主题、模式和快捷键菜单。 */
-import type { Locale, UserInfo } from "@zcode/shared";
+import type { Locale, OAuthProviderId, UserInfo } from "@zcode/shared";
 import { memo, useCallback, useEffect, useState } from "react";
 import {
   DesktopCommandIds,
+  KIMI_GLOBAL_PROVIDER_ID,
+  KIMI_PROVIDER_ID,
   TID_LOGIN_MENU_ITEM,
   TID_LOGIN_TRIGGER,
   TID_LOGOUT_BUTTON,
@@ -26,6 +28,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu.js";
 import {
+  ArrowLeftRight,
+  Check,
   PencilRuler,
   Globe,
   Loader2,
@@ -38,7 +42,9 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
+import { useAccountSwitch } from "@/hooks/useAccountSwitch.js";
 import { usePlatform } from "@/hooks/usePlatform.js";
+import { renderOAuthProviderIcon } from "@/lib/oauthProviderIcon.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { useShortcutCommandLabel } from "@/shortcuts/useShortcutBindings.js";
 import { useZCodeStore } from "@/store/StoreProvider.js";
@@ -82,6 +88,17 @@ function getSidebarProfileBadge(
 function getAvatarFallbackText(user: UserInfo | null | undefined): string {
   const source = user?.displayName?.trim() || user?.username?.trim() || "Z";
   return source[0]?.toUpperCase() ?? "Z";
+}
+
+// 两个 Kimi 区域的 displayName 相同，账号列表必须带区域标签才能区分目标账号。
+function resolveAccountSwitchRegionTagId(provider: OAuthProviderId): string | null {
+  if (provider === KIMI_PROVIDER_ID) {
+    return "login.oauth.regionTag.kimi";
+  }
+  if (provider === KIMI_GLOBAL_PROVIDER_ID) {
+    return "login.oauth.regionTag.kimiGlobal";
+  }
+  return null;
 }
 
 export const WorkspaceSidebarFooter = memo(function WorkspaceSidebarFooterComponent({
@@ -177,6 +194,17 @@ export const WorkspaceSidebarFooter = memo(function WorkspaceSidebarFooterCompon
   const usageButtonClick = onUsageClick ?? onSettingsButtonClick;
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [desktopZoomLevel, setDesktopZoomLevel] = useState(0);
+  const { switchAccount, switchingProvider, accountSwitchOptions, loadAccountSwitchOptions } =
+    useAccountSwitch();
+
+  useEffect(() => {
+    if (!profileMenuOpen || !user) {
+      return;
+    }
+    // 账号切换只在已登录菜单里出现；列表按需加载，避免每次挂载 footer 都查凭据。
+    void loadAccountSwitchOptions();
+  }, [loadAccountSwitchOptions, profileMenuOpen, user]);
+
   const runDesktopZoomCommand = useCallback(
     (command: (typeof DesktopCommandIds)["ZoomIn" | "ZoomOut" | "ResetZoom"]) => {
       void platform.executeDesktopCommand(command);
@@ -349,6 +377,51 @@ export const WorkspaceSidebarFooter = memo(function WorkspaceSidebarFooterCompon
               onUsageClick={usageButtonClick}
               onUpgradeClick={onUpgradeClick}
             />
+            {user && accountSwitchOptions && accountSwitchOptions.length > 0 ? (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger>
+                    <ArrowLeftRight className="size-4" />
+                    {intl.formatMessage({ id: "sidebar.profile.switchAccount" })}
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent className="w-56">
+                    {accountSwitchOptions.map(({ provider, persisted, active }) => {
+                      const regionTagId = resolveAccountSwitchRegionTagId(provider.id);
+                      return (
+                        <DropdownMenuItem
+                          key={provider.id}
+                          // 当前账号没有再切一次的意义；切换进行中锁定整组，避免并发写 active provider。
+                          disabled={active || switchingProvider !== null}
+                          onSelect={() => {
+                            void switchAccount(provider.id);
+                          }}
+                        >
+                          {active ? (
+                            <Check className="size-4" />
+                          ) : (
+                            renderOAuthProviderIcon(provider.id, "size-4")
+                          )}
+                          <span className="min-w-0 flex-1 truncate">{provider.displayName}</span>
+                          {regionTagId ? (
+                            <span className="text-ui-xs text-foreground-subtlest">
+                              {intl.formatMessage({ id: regionTagId })}
+                            </span>
+                          ) : null}
+                          {!active ? (
+                            <span className="text-ui-xs text-foreground-subtlest">
+                              {intl.formatMessage({
+                                id: persisted ? "sidebar.profile.switch" : "sidebar.profile.login",
+                              })}
+                            </span>
+                          ) : null}
+                        </DropdownMenuItem>
+                      );
+                    })}
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+              </>
+            ) : null}
             {onLogin && !user ? (
               <>
                 <DropdownMenuSeparator />

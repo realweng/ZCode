@@ -31,6 +31,17 @@ export interface PresetProviderSpec {
   id: BuiltinModelProviderId;
   displayName: string;
   oauthProviderId?: OAuthProviderId;
+  /**
+   * 是否作为 family 的可导航入口卡（默认是）。
+   * kimi-global 与 kimi 共享 kimi family，但只在跨 family 时作为切换目标出现，
+   * 避免同一 family 出现两张导航卡。
+   */
+  familyEntry?: boolean;
+  /**
+   * 跨 family 快捷切换入口：当前 domain 已属于另一账号域时恢复的预设卡。
+   * 这类卡片是动作入口，不是可导航节点，不参与选中解析与回退候选。
+   */
+  crossFamilySwitch?: boolean;
 }
 
 export const PRESET_PROVIDER_SPECS: PresetProviderSpec[] = [
@@ -43,6 +54,19 @@ export const PRESET_PROVIDER_SPECS: PresetProviderSpec[] = [
     id: BUILTIN_MODEL_PROVIDER_IDS.bigmodelStartPlan,
     displayName: "BigModel",
     oauthProviderId: BIGMODEL_PROVIDER_ID,
+  },
+  // Kimi 两个区域各自持有独立 OAuth 凭据，入口卡必须逐 provider 展示；
+  // 只按 family 合并会让 kimi-global 账号无法一键切回。
+  {
+    id: BUILTIN_MODEL_PROVIDER_IDS.kimiCodingPlan,
+    displayName: "Kimi",
+    oauthProviderId: KIMI_PROVIDER_ID,
+  },
+  {
+    id: BUILTIN_MODEL_PROVIDER_IDS.kimiGlobalCodingPlan,
+    displayName: "Kimi Global",
+    oauthProviderId: KIMI_GLOBAL_PROVIDER_ID,
+    familyEntry: false,
   },
 ];
 
@@ -160,6 +184,8 @@ export type ModelProviderNavItem =
       label: string;
       provider: ProviderSettingsFormProvider | null;
       displayName: string;
+      /** 跨 family 快捷切换入口，不是可导航节点。 */
+      crossFamilySwitch?: boolean;
       statusActive: boolean;
     }
   | {

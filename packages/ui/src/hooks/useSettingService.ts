@@ -104,6 +104,18 @@ async function refreshSettingsStore(settingService: ISettingService | undefined)
   return store.inflightRefresh;
 }
 
+/**
+ * 刷新指定 service 的设置快照。
+ *
+ * settingService 直接落盘不会广播；账号切换这类 app-global 写入发生在 workspace 服务作用域之外，
+ * 不能借用当前上下文的 useSettings()，只能显式按同一 service 刷新同一份 store。
+ */
+export function refreshAppSettingsSnapshot(
+  settingService: ISettingService | undefined,
+): Promise<void> {
+  return refreshSettingsStore(settingService);
+}
+
 /** 获取和更新应用设置 */
 export function useSettings() {
   const { botsService, broadcastService, settingService, zcodeAgentService } = useServices();

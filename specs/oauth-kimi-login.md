@@ -16,15 +16,20 @@
    - 打开系统浏览器访问 `verification_uri_complete`(自动携带 user_code,用户无需手输)
    - Host 轮询 `POST {oauthHost}/api/oauth/token`(`grant_type=urn:ietf:params:oauth:grant-type:device_code`)
    - 轮询语义:`authorization_pending` 继续、`slow_down` 间隔 +5s、`expired_token`/`access_denied` 终止报错、成功返回 token
-3. 登录互斥:`oauth:active_provider` 是单一事实源。Kimi 任意区域登录成功时清理 zai/bigmodel/另一区域 kimi 的本地凭据;反向登录同理。
-4. Token 生命周期:
+3. 登录互斥(修正,与实现一致):互斥只发生在同 family 的 sibling 之间——zai↔bigmodel、kimi↔kimi-global;跨 family(智谱↔Kimi)凭据互不清理,天然并存于 credentials.json。`oauth:active_provider` 单值代表"当前活跃账号",不否定对方 family 的持久登录态。
+4. 账号快捷切换(单活语义):
+   - 切换 = 把 `active_provider` 指回目标 family 已持久化的凭据(无需重新登录),UI 侧同步 `providerFamilyDomain`,并触发一次账号 provider 视图刷新;目标无凭据时降级为登录入口。
+   - 切换后展示态由 `restoreCachedSession` 按 active_provider 恢复;token/JWT 有效性沿用既有请求期刷新与恢复链路,切换动作不做远端校验。
+   - 智谱域功能(off-peak、official MCP、Start Plan)按"当前 active family"解析,切换后自然生效。
+   - Kimi 登出同样触发账号 provider 刷新(与智谱一致,不残留已登出状态)。
+5. Token 生命周期:
    - `access_token` 短期(登录时落盘 `expiresAt`);
    - `refresh_token` 长期,用于静默刷新;
    - 模型请求期(反向 RPC 解析鉴权时)若 token 临期(≤5min)或过期,先刷新再返回;
    - 刷新返回 401/`invalid_grant` 时按登出处理,UI 提示重新登录。
-5. 会话恢复:Kimi 无 zcode JWT。启动恢复只读缓存 `oauth:kimi*:user_info`,按已登录展示;token 有效性由请求期刷新兜底,不在恢复链路做远端校验。
-6. 用户信息来自 `GET {apiBase}/me`(snake_case:`user_id`/`nickname`/`avatar`/`email`),失败不阻塞登录(与 bigmodel 语义一致)。
-7. 模型列表静态内置(kimi-k2 系列),登录后不动态拉取 `/models`。
+6. 会话恢复:Kimi 无 zcode JWT。启动恢复只读缓存 `oauth:kimi*:user_info`,按已登录展示;token 有效性由请求期刷新兜底,不在恢复链路做远端校验。
+7. 用户信息来自 `GET {apiBase}/me`(snake_case:`user_id`/`nickname`/`avatar`/`email`),失败不阻塞登录(与 bigmodel 语义一致)。
+8. 模型列表静态内置(kimi-k2 系列),登录后不动态拉取 `/models`。
 
 ## 状态所有者
 

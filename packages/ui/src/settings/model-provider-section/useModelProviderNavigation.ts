@@ -183,7 +183,7 @@ export function useModelProviderNavigation({
         id: "preset",
         title: intl.formatMessage({ id: "settings.modelProvider.presetTitle" }),
         items: [
-          ...presetProviders.map(({ id, displayName, provider }) => {
+          ...presetProviders.map(({ id, displayName, provider, crossFamilySwitch }) => {
             const statusProvider = resolvePresetFamilyStatusProvider({
               presetId: id,
               provider,
@@ -203,6 +203,7 @@ export function useModelProviderNavigation({
               )?.config.logo,
               provider,
               displayName,
+              crossFamilySwitch: crossFamilySwitch === true,
               statusProvider,
               statusActive: statusProvider?.executable === true,
             };
@@ -247,14 +248,11 @@ export function useModelProviderNavigation({
   }, [connectionModeCodingPlanItems, navigationGroups]);
 
   const selectableNavigationItems = useMemo(
-    () => navigationItems.filter((item) => item.type !== "codingPlanLoading"),
+    () => navigationItems.filter(isSelectableModelProviderNavItem),
     [navigationItems],
   );
   const selectableSideNavigationItems = useMemo(
-    () =>
-      navigationGroups
-        .flatMap((group) => group.items)
-        .filter((item) => item.type !== "codingPlanLoading"),
+    () => navigationGroups.flatMap((group) => group.items).filter(isSelectableModelProviderNavItem),
     [navigationGroups],
   );
 
@@ -326,6 +324,24 @@ export function useModelProviderNavigation({
     selectedNavItem,
     navigationUnavailable,
   };
+}
+
+type SelectableModelProviderNavItem = Exclude<
+  ModelProviderNavGroup["items"][number],
+  { type: "codingPlanLoading" }
+>;
+
+/**
+ * 跨 family 预置卡是快捷切换动作而非页面：不进入选中解析与回退候选，
+ * 这样账号切换导致原选中项失效时，既有回退逻辑仍会落回当前 family 的连接项。
+ */
+function isSelectableModelProviderNavItem(
+  item: ModelProviderNavGroup["items"][number],
+): item is SelectableModelProviderNavItem {
+  if (item.type === "codingPlanLoading") {
+    return false;
+  }
+  return !(item.type === "preset" && item.crossFamilySwitch === true);
 }
 
 function shouldShowCodingPlanForProviderFamilyDomain(

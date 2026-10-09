@@ -21,7 +21,7 @@ import {
 import type { ICredentialService } from "../credential/credential.js";
 import { createServiceLogger } from "../logger/serviceLogger.js";
 import { readApiJson } from "../providers/api/apiJson.js";
-import type { IOAuthService } from "./oauth.js";
+import type { IOAuthService, OAuthAccountSwitchResult } from "./oauth.js";
 import { isCurrentOAuthCredentialRequest } from "#src/oauth/oauthUnauthorizedRequest.js";
 import { hasOAuthAuthorizationCode, parseOAuthLoginAttribution } from "./callbackAttribution.js";
 import {
@@ -1331,6 +1331,42 @@ export class OAuthService implements IOAuthService {
     });
     await this.cancelPending();
     await this.notifyProvidersLogout(providers, accountIdentities);
+  }
+
+  async switchAccountFamily(provider: OAuthProviderId): Promise<OAuthAccountSwitchResult> {
+    // 单活快捷切换：跨 family（智谱↔Kimi）凭据本来共存——互斥只在同 family sibling
+    // （zai↔bigmodel、kimi↔kimi-global）之间。切换 = 把 active provider 指回目标
+    // family 已持久化的登录档案，无需重新走 OAuth；域设置与账号视图刷新由 UI 侧复用
+    // 登录后处理链路（setProviderFamilyDomain + providerSettingsService.refresh）完成。
+    const result = await this.runSessionMutation(async () => {
+      const adapter = this.adapters.get(provider);
+      if (!adapter || !adapter.meta.enabled) {
+        return { kind: "login-required" as const, provider };
+      }
+      const profile = await this.repo.loadUserProfile(provider);
+      if (!profile) {
+        return { kind: "login-required" as const, provider };
+      }
+      // 代际 +1 让仍在进行中的旧登录 flow 完成时按失效回滚，避免旧回包覆盖切换结果。
+      this.oauthSessionGeneration += 1;
+      await this.repo.setActiveProvider(provider);
+      return { kind: "switched" as const, provider };
+    });
+    if (result.kind === "switched") {
+      await this.cancelPending();
+    }
+    return result;
+  }
+
+  async listPersistedOAuthProviders(): Promise<OAuthProviderId[]> {
+    const persisted: OAuthProviderId[] = [];
+    for (const [provider, adapter] of this.adapters) {
+      if (!adapter.meta.enabled) continue;
+      if (await this.repo.loadUserProfile(provider)) {
+        persisted.push(provider);
+      }
+    }
+    return persisted;
   }
 
   async cancelPending(provider?: OAuthProviderId): Promise<void> {

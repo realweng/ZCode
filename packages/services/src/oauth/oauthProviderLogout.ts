@@ -17,9 +17,10 @@ export function createOAuthProviderLogoutHandler(
 ): (provider: OAuthProviderId, accountIdentity?: string | null) => Promise<void> {
   return async (provider, accountIdentity) => {
     const providerIds = resolveProviderIds(provider);
-    if (!providerIds) return;
 
-    if (accountIdentity?.trim()) {
+    // Bug 根因：kimi 在 resolveProviderIds 返回 null 后提前 return，refreshAccountProviders
+    // 不触发，账号 provider 视图残留已登出状态。kimi 无派生凭据可清，但刷新必须执行。
+    if (providerIds && accountIdentity?.trim()) {
       await dependencies.accountProviderCredentialStore.deleteApiKey(
         accountProviderCredentialKey({
           providerId: providerIds.codingPlan,

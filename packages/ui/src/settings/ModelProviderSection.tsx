@@ -9,6 +9,7 @@ import {
   BUILTIN_MODEL_PROVIDER_IDS,
   DesktopCommandIds,
   isStartPlanModelProviderId,
+  isZhipuModelProviderFamilyId,
   KIMI_GLOBAL_PROVIDER_ID,
   KIMI_PROVIDER_ID,
   type BuiltinModelProviderId,
@@ -17,13 +18,13 @@ import {
   type ProviderFamilyConnectionSelectionSettings,
   type ProviderFamilyDomain,
   type OAuthProviderId,
-  resolveModelProviderFamilyIdByProviderId,
   resolveModelProviderFamilySpecByProviderId,
   resolveProviderFamilyDomainFromOAuthProvider,
   ZAI_PROVIDER_ID,
 } from "@zcode/shared";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { Button } from "@/components/ui/button.js";
+import { useAccountSwitch } from "@/hooks/useAccountSwitch.js";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog.js";
 import { useModelProviders } from "@/hooks/useModelProviders.js";
 import { resolveEntitledAccountProviderAccess } from "@/lib/accountProviderAccess.js";
@@ -176,15 +177,47 @@ function resolveBuiltinPresetOAuthProvider(
   return null;
 }
 
+/** 预置卡的账号域按 OAuth provider 反查：kimi-global 没有独立模型 provider 槽位，按模型 ID 反查会落空。 */
+function resolvePresetProviderFamilyDomain(
+  presetId: BuiltinModelProviderId,
+): ProviderFamilyDomain | null {
+  const presetOAuthProvider = resolveBuiltinPresetOAuthProvider(presetId);
+  return presetOAuthProvider
+    ? resolveProviderFamilyDomainFromOAuthProvider(presetOAuthProvider)
+    : null;
+}
+
 function shouldShowPresetProviderForActiveOAuth(
   presetId: BuiltinModelProviderId,
   providerFamilyDomain: ProviderFamilyDomain | null | undefined,
 ): boolean {
-  const presetOAuthProvider = resolveBuiltinPresetOAuthProvider(presetId);
-  if (!providerFamilyDomain || !presetOAuthProvider) {
+  const presetFamily = resolvePresetProviderFamilyDomain(presetId);
+  if (!providerFamilyDomain || !presetFamily) {
     return true;
   }
-  return resolveModelProviderFamilyIdByProviderId(presetId) === providerFamilyDomain;
+  return presetFamily === providerFamilyDomain;
+}
+
+/**
+ * 跨 family 快捷切换入口：当前 domain 已属于另一账号域（智谱 ↔ Kimi）时恢复其预设卡，
+ * 点击即切回该 provider 已持久化的账号；本地无档案时由切换动作降级到统一登录入口。
+ * 同 family 的 zai↔bigmodel 互斥不算跨 family，不恢复兄弟卡。
+ */
+function resolveCrossFamilyPresetOAuthProvider(
+  presetId: BuiltinModelProviderId,
+  providerFamilyDomain: ProviderFamilyDomain | null | undefined,
+): OAuthProviderId | null {
+  const presetFamily = resolvePresetProviderFamilyDomain(presetId);
+  if (!providerFamilyDomain || !presetFamily || presetFamily === providerFamilyDomain) {
+    return null;
+  }
+  if (
+    isZhipuModelProviderFamilyId(presetFamily) ===
+    isZhipuModelProviderFamilyId(providerFamilyDomain)
+  ) {
+    return null;
+  }
+  return resolveBuiltinPresetOAuthProvider(presetId);
 }
 
 function clearPendingProviderFamilyConnectionSelection(
@@ -258,6 +291,7 @@ export function ModelProviderSection({
   const confirmDialog = useConfirmDialog();
   const platform = usePlatform();
   const { modelSelectionService, oauthService, credentialService } = useServices();
+  const { switchAccount } = useAccountSwitch();
   const {
     modelProviders,
     providerTemplates,
@@ -617,12 +651,28 @@ export function ModelProviderSection({
 
   const presetProviders = useMemo(
     () =>
-      PRESET_PROVIDER_SPECS.filter((preset) =>
-        shouldShowPresetProviderForActiveOAuth(preset.id, effectiveProviderFamilyDomain),
-      ).map((preset) => ({
-        ...preset,
-        provider: modelProviders.find((provider) => provider.providerId === preset.id) ?? null,
-      })),
+      PRESET_PROVIDER_SPECS.flatMap((preset) => {
+        // 已登录时保留另一 family 的入口卡，用户无需重新登录即可切回对方账号。
+        const crossFamilyOAuthProvider = resolveCrossFamilyPresetOAuthProvider(
+          preset.id,
+          effectiveProviderFamilyDomain,
+        );
+        const visible =
+          crossFamilyOAuthProvider !== null ||
+          (preset.familyEntry !== false &&
+            shouldShowPresetProviderForActiveOAuth(preset.id, effectiveProviderFamilyDomain));
+        if (!visible) {
+          return [];
+        }
+        return [
+          {
+            ...preset,
+            provider: modelProviders.find((provider) => provider.providerId === preset.id) ?? null,
+            // 跨 family 卡片只承担切换动作，导航层据此把它排除在可选中节点之外。
+            crossFamilySwitch: crossFamilyOAuthProvider !== null,
+          },
+        ];
+      }),
     [effectiveProviderFamilyDomain, modelProviders],
   );
 
@@ -987,12 +1037,28 @@ export function ModelProviderSection({
 
   const handleSelectNavItem = useCallback(
     (item: (typeof navigationItems)[number]) => {
+      if (item.type === "preset") {
+        const crossFamilyOAuthProvider = resolveCrossFamilyPresetOAuthProvider(
+          item.presetId,
+          effectiveProviderFamilyDomain,
+        );
+        if (crossFamilyOAuthProvider) {
+          // 跨 family 预设卡是快捷切换入口，不进入对方 family 的详情（当前 domain 下没有它的连接项）。
+          // 切换成功后落到目标 family 自己的卡，避免详情停留在原 family 的连接项。
+          void switchAccount(crossFamilyOAuthProvider).then((result) => {
+            if (result?.kind === "switched") {
+              setSelectedNodeKey(item.key);
+            }
+          });
+          return;
+        }
+      }
       setInvalidProviderTarget(false);
       setSelectedNodeKey(resolveModelProviderSideSelectionKey(item));
       setTemplatePickerOpen(false);
       void persistProviderFamilyModeForNavItem(item);
     },
-    [persistProviderFamilyModeForNavItem],
+    [effectiveProviderFamilyDomain, persistProviderFamilyModeForNavItem, switchAccount],
   );
 
   const handleCreateProvider = useCallback(

@@ -73,7 +73,12 @@ function shouldShowModelProviderGroupLoadingIndicator(params: {
 
 function resolveModelProviderSideNavLabel(item: ModelProviderNavItem): string {
   if (item.type === "preset") {
-    return resolveModelProviderFamilySpecByProviderId(item.presetId)?.label ?? item.label;
+    // Kimi 两区域共享同一 family 标签，预置卡必须按 provider 展示名区分（Kimi / Kimi Global）。
+    return (
+      item.displayName ||
+      resolveModelProviderFamilySpecByProviderId(item.presetId)?.label ||
+      item.label
+    );
   }
   if (item.type === "codingPlan" && isStartPlanModelProviderId(item.presetId)) {
     return "Start Plan";

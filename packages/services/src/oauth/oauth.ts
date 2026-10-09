@@ -66,6 +66,16 @@ export interface IOAuthService {
   logoutAll(): Promise<void>;
 
   /**
+   * 账号快捷切换（单活语义）：切回目标 family 已持久化的登录态，无需重新走 OAuth。
+   * 目标 provider 不可用或本地无凭据时返回 login-required，由 UI 引导走登录流程。
+   * 切换只改 active provider 与会话代际；域设置、账号视图刷新由 UI 侧复用既有链路完成。
+   */
+  switchAccountFamily(provider: OAuthProviderId): Promise<OAuthAccountSwitchResult>;
+
+  /** 列出本地仍有持久化登录档案的 provider（跨 family 凭据共存的现状事实）。 */
+  listPersistedOAuthProviders(): Promise<OAuthProviderId[]>;
+
+  /**
    * 取消 pending OAuth
    * @param provider - 可选；不传时取消当前 pending
    */
@@ -73,3 +83,8 @@ export interface IOAuthService {
 }
 
 export const IOAuthService = createServiceDescriptor<IOAuthService>(ServiceChannels.OAuth);
+
+/** 账号快捷切换结果：switched = 已切回持久化登录态；login-required = 需要走登录流程。 */
+export type OAuthAccountSwitchResult =
+  | { kind: "switched"; provider: OAuthProviderId }
+  | { kind: "login-required"; provider: OAuthProviderId };
