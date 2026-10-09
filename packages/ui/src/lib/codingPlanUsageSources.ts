@@ -1,7 +1,9 @@
 import {
   BUILTIN_MODEL_PROVIDER_IDS,
   getModelProviderFamilySpec,
+  isKimiCodingPlanProviderId,
   isZhipuModelProviderFamilyId,
+  normalizeProviderFamilyDomain,
   resolveModelProviderFamilySpecByProviderId,
   type ProviderFamilyConnectionSelectionSettings,
   type ProviderFamilyDomain,
@@ -17,6 +19,14 @@ import type {
   SidebarUsageCodingPlanSourceId,
 } from "@/lib/sidebarUsageCodingPlanProviderPreference.js";
 import { formatTeamPlanDisplayName } from "@/lib/teamPlanDisplayName.js";
+
+/**
+ * Kimi 来源可用的两个区域 provider。
+ * kimi 与 kimi-global 同属一个 family，但各自持有独立 OAuth 凭据，必须逐 provider 表达。
+ */
+export type KimiCodingPlanUsageProviderId =
+  | typeof BUILTIN_MODEL_PROVIDER_IDS.kimiCodingPlan
+  | typeof BUILTIN_MODEL_PROVIDER_IDS.kimiGlobalCodingPlan;
 
 export interface CodingPlanUsageSource {
   id: SidebarUsageCodingPlanSourceId;
@@ -43,8 +53,51 @@ export function buildPersonalCodingPlanUsageSource({
       normalizedLabel ||
       (providerId === BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan
         ? "Z.ai - Coding Plan"
-        : "BigModel - Coding Plan"),
+        : isKimiCodingPlanProviderId(providerId)
+          ? "Kimi - Coding Plan"
+          : "BigModel - Coding Plan"),
   };
+}
+
+/**
+ * Kimi 个人套餐来源的可见条件。
+ *
+ * Kimi 是独立账号域（单活语义），只在当前展示域是 kimi 时展示。登出会把
+ * providerFamilyDomain 清空，此时若该用户此前选择过 kimi 连接方式
+ * （providerFamilyConnectionSelections.kimi 仍在），继续保留入口以展示 not_configured，
+ * 而不是让页面看起来像从未接入过 Kimi。
+ */
+export function shouldOfferKimiCodingPlanUsageSource(params: {
+  providerFamilyDomain: ProviderFamilyDomain | null | undefined;
+  connectionSelections?: ProviderFamilyConnectionSelectionSettings | null;
+}): boolean {
+  const providerFamilyDomain = normalizeProviderFamilyDomain(params.providerFamilyDomain);
+  if (providerFamilyDomain === "kimi") {
+    return true;
+  }
+  if (providerFamilyDomain !== null) {
+    return false;
+  }
+  return params.connectionSelections?.kimi != null;
+}
+
+/**
+ * 解析 Kimi 来源要使用的 providerId。
+ *
+ * kimi 与 kimi-global 是同一 family 的两个区域，各自持有独立 OAuth 凭据；
+ * 当前选中的模型 provider 优先，缺失时按账号区域回退。
+ */
+export function resolveKimiCodingPlanUsageProviderId(params: {
+  selectedProviderId?: string | null;
+  accountType?: ZCodeProviderAccountAccess["accountType"] | null;
+}): KimiCodingPlanUsageProviderId {
+  const selectedProviderId = params.selectedProviderId?.trim() ?? "";
+  if (isKimiCodingPlanProviderId(selectedProviderId)) {
+    return selectedProviderId as KimiCodingPlanUsageProviderId;
+  }
+  return params.accountType === "kimi-global"
+    ? BUILTIN_MODEL_PROVIDER_IDS.kimiGlobalCodingPlan
+    : BUILTIN_MODEL_PROVIDER_IDS.kimiCodingPlan;
 }
 
 type CurrentSidebarCodingPlanUsageSource =
@@ -162,12 +215,33 @@ export function resolveSidebarCurrentCodingPlanUsageSource({
   accountAccesses: Partial<Record<ProviderFamilyDomain, ZCodeProviderAccountAccess>>;
   teamSources: CodingPlanUsageSource[];
 }): CurrentSidebarCodingPlanUsageSource | null {
-  const family = selectedProviderId
-    ? resolveModelProviderFamilySpecByProviderId(selectedProviderId)?.id
-    : undefined;
+  // Kimi Global（account:kimi-global-coding-plan）不在 shared 的 provider→family 反查表里
+  // （该表由 family spec 的三个商品槽构造，kimi 三个槽都指向 kimi-coding-plan）。
+  // 只依赖反查会让 kimi-global 账号的 sidebar 来源永远解析为 null，因此先按 kimi provider 判定。
+  const kimiSelectedProviderId = selectedProviderId?.trim() ?? "";
+  const selectedIsKimiCodingPlan = isKimiCodingPlanProviderId(kimiSelectedProviderId);
+  const family = selectedIsKimiCodingPlan
+    ? "kimi"
+    : kimiSelectedProviderId
+      ? resolveModelProviderFamilySpecByProviderId(kimiSelectedProviderId)?.id
+      : undefined;
   if (!family) return null;
-  // Kimi 的用量不接入 sidebar coding plan 源（无 zhipu 订阅快照通道）。
-  if (!isZhipuModelProviderFamilyId(family)) return null;
+  // Kimi 没有商品选择层与订阅快照通道，来源直接由账号区域决定：
+  // 当前选中的模型 provider 已是 kimi 域，access 存在即代表可查询（未登录由服务端返回 not_configured）。
+  if (family === "kimi") {
+    const kimiAccountAccess = accountAccesses.kimi;
+    if (!kimiAccountAccess || kimiAccountAccess.type !== "kimi-account") return null;
+    const providerId = resolveKimiCodingPlanUsageProviderId({
+      selectedProviderId: kimiSelectedProviderId,
+      accountType: kimiAccountAccess.accountType,
+    });
+    return {
+      audience: "individual",
+      providerId,
+      sourceId: providerId,
+      accountAccess: kimiAccountAccess,
+    };
+  }
   const selection = selections?.[family];
   if (selection?.kind === "team-coding-plan") {
     const teamSource = teamSources.find(

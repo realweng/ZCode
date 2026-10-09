@@ -130,7 +130,8 @@ export function AppUsagePanel() {
   );
 }
 
-function AppUsageLifetimeSummaryStrip({ snapshot }: { snapshot: AppUsageSnapshot | null }) {
+/** 累计口径的本地应用用量概览；Coding Plan 的 Kimi 分支也复用它。 */
+export function AppUsageLifetimeSummaryStrip({ snapshot }: { snapshot: AppUsageSnapshot | null }) {
   const { intl, locale } = useZCodeIntl();
   const items = [
     {

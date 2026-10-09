@@ -19,6 +19,7 @@ import type {
 } from "@zcode/shared";
 import {
   BUILTIN_MODEL_PROVIDER_IDS,
+  normalizeProviderFamilyDomain,
   TID_SETTINGS_BACK_BUTTON,
   TID_SETTINGS_PAGE,
   TID_SETTINGS_SECTION_NAV,
@@ -52,6 +53,7 @@ import { readSidebarUsageCodingPlanSourcePreference } from "@/lib/sidebarUsageCo
 import {
   resolveEntitledAccountProviderAccess,
   resolveEntitledAccountProviderAccessFingerprint,
+  resolveKimiAccountProviderAccess,
 } from "@/lib/accountProviderAccess.js";
 import { buildUsageEntitlementCacheKey } from "@/lib/usageEntitlementCache.js";
 import { ModelProviderSection } from "@/settings/ModelProviderSection.js";
@@ -62,7 +64,10 @@ import {
   buildCodingPlanUsageSources,
   type CodingPlanUsageSource,
 } from "@/settings/usage-stats/CodingPlanUsagePanel.js";
-import { buildPersonalCodingPlanUsageSource } from "@/lib/codingPlanUsageSources.js";
+import {
+  buildPersonalCodingPlanUsageSource,
+  shouldOfferKimiCodingPlanUsageSource,
+} from "@/lib/codingPlanUsageSources.js";
 import { SubagentsSection } from "@/settings/SubagentsSection.js";
 import { AutomationsSection } from "@/settings/AutomationsSection.js";
 import { SegmentPill } from "@/settings/PluginStoreListView.js";
@@ -353,6 +358,12 @@ export function SettingsPage({
       ? usageProviderSettingsRead.state.view
       : null;
   const usageProviderSettingsLoading = usageProviderSettingsRead.state.status !== "ready";
+  // 使用统计的 provider 域与 kimi 来源可见性都依赖 AppSettings；这里提前读取，
+  // 避免 usage source 构造晚于同一份设置的消费位置。
+  const { settings: sharedSettings, update: updateSharedSettings } = useSettings();
+  const usageProviderFamilyDomain = normalizeProviderFamilyDomain(
+    sharedSettings?.providerFamilyDomain,
+  );
   const usageZaiProvider = usageProviderSettingsView?.providers.find(
     (provider) => provider.providerId === BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan,
   );
@@ -382,6 +393,16 @@ export function SettingsPage({
   const usageBigmodelTeamProviderFingerprint = resolveEntitledAccountProviderAccessFingerprint(
     usageProviderSettingsView,
     BUILTIN_MODEL_PROVIDER_IDS.bigmodelTeamCodingPlan,
+  );
+  // Kimi 两个区域各持独立 OAuth 凭据；登出后 access 仍存在（entitled=false），
+  // 因此这里不做 entitled 过滤，由来源可见性条件决定是否展示。
+  const usageKimiProviderAccess = resolveKimiAccountProviderAccess(
+    usageProviderSettingsView,
+    BUILTIN_MODEL_PROVIDER_IDS.kimiCodingPlan,
+  );
+  const usageKimiGlobalProviderAccess = resolveKimiAccountProviderAccess(
+    usageProviderSettingsView,
+    BUILTIN_MODEL_PROVIDER_IDS.kimiGlobalCodingPlan,
   );
   const usageZaiEntitlement = useUsageEntitlement({
     enabled:
@@ -483,11 +504,40 @@ export function SettingsPage({
         }),
       );
     }
+    /*
+     * Kimi 没有订阅商品摘要（subscription 恒为 null），不能用 hasActiveCodingPlanSnapshot 过滤：
+     * 来源按活跃账号域构造，未登录时由 entitlement 返回 not_configured，面板展示同态提示。
+     * 两个区域各持独立凭据，优先取已登录的那个。
+     */
+    const kimiAccesses = [usageKimiProviderAccess, usageKimiGlobalProviderAccess].filter(
+      (access) => access !== null,
+    );
+    const activeKimiAccess =
+      kimiAccesses.find((access) => access.access.entitled === true) ?? kimiAccesses[0] ?? null;
+    if (
+      activeKimiAccess &&
+      shouldOfferKimiCodingPlanUsageSource({
+        providerFamilyDomain: usageProviderFamilyDomain,
+        connectionSelections: sharedSettings?.providerFamilyConnectionSelections,
+      })
+    ) {
+      sources.push(
+        buildPersonalCodingPlanUsageSource({
+          providerId: activeKimiAccess.providerId,
+          accountAccess: activeKimiAccess.access,
+          label: activeKimiAccess.label,
+        }),
+      );
+    }
     return sources;
   }, [
+    sharedSettings?.providerFamilyConnectionSelections,
     usageBigmodelEntitlement.snapshot,
     usageBigmodelProvider,
     usageBigmodelProviderAccess,
+    usageKimiGlobalProviderAccess,
+    usageKimiProviderAccess,
+    usageProviderFamilyDomain,
     usageZaiEntitlement.snapshot,
     usageZaiProvider,
     usageZaiProviderAccess,
@@ -663,7 +713,6 @@ export function SettingsPage({
   const services = useServices();
   const onboardingRecordService = services.onboardingRecordService;
   const localHostServices = useBaseWorkspaceServices();
-  const { settings: sharedSettings, update: updateSharedSettings } = useSettings();
   const memoryWorkspaceDisplayNames = useMemo(() => {
     const names = new Set<string>();
     // Memory Scope 的项目顺序以 settings.json recentProjects 为准；打开中的

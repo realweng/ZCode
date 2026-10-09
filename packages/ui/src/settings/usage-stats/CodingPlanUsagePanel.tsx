@@ -8,6 +8,7 @@ import type {
   CodingPlanUsageDetailSubject,
   CodingPlanUsageRange,
   CodingPlanUsageSnapshot,
+  UsageEntitlementSnapshot,
   UsageQuotaLimit,
   UsageQuotaSnapshot,
 } from "@zcode/shared";
@@ -17,11 +18,11 @@ import { buildCodingPlanQuotaResetDialogConfig } from "@/components/coding-plan-
 import { Button } from "@/components/ui/button.js";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs.js";
 import { ControlHintTooltip } from "@/ControlHintTooltip.js";
-import { BUILTIN_MODEL_PROVIDER_IDS } from "@zcode/shared";
+import { BUILTIN_MODEL_PROVIDER_IDS, isKimiCodingPlanProviderId } from "@zcode/shared";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { useUsageEntitlement } from "@/hooks/useUsageEntitlement.js";
 import { useCodingPlanQuotaResetUi } from "@/hooks/useCodingPlanQuotaResetUi.js";
-import { useCodingPlanUsageStats } from "@/hooks/useUsageStats.js";
+import { useAppUsageStats, useCodingPlanUsageStats } from "@/hooks/useUsageStats.js";
 import { buildUsageEntitlementCacheKey } from "@/lib/usageEntitlementCache.js";
 import {
   findCodingPlanQuotaLimit,
@@ -53,6 +54,7 @@ import {
   formatSummaryCompactTokenUsage,
 } from "@/settings/usage-stats/usageStatsUiParts.js";
 import { formatAppUsageDuration } from "@/settings/usage-stats/AppUsagePanel.js";
+import { AppUsageLifetimeSummaryStrip } from "@/settings/usage-stats/AppUsagePanel.js";
 import {
   buildCodingPlanUsageSources,
   type CodingPlanUsageSource,
@@ -79,6 +81,11 @@ const CodingPlanUsageLineChart = lazy(() =>
 const CodingPlanUsageBarChart = lazy(() =>
   import("@/settings/usage-stats/CodingPlanUsageBarChart.js").then((module) => ({
     default: module.CodingPlanUsageBarChart,
+  })),
+);
+const KimiAppUsageDailyModelTrendChart = lazy(() =>
+  import("@/settings/usage-stats/AppUsageDailyModelTrendChart.js").then((module) => ({
+    default: module.AppUsageDailyModelTrendChart,
   })),
 );
 const CODING_PLAN_DETAIL_SERIES_COLORS = [
@@ -110,6 +117,7 @@ export function CodingPlanUsagePanel({
   void workspacePath;
   const effectiveSource = selectedSource ?? null;
   const effectiveProviderId = effectiveSource?.providerId;
+  const effectiveSourceIsKimiCodingPlan = isKimiCodingPlanProviderId(effectiveProviderId ?? "");
   const effectiveSourceIsTeamPlan = Boolean(
     effectiveSource &&
     "planKind" in effectiveSource.accountAccess &&
@@ -174,13 +182,32 @@ export function CodingPlanUsagePanel({
     cacheKey: effectiveSource?.id,
     refreshOnMount: false,
   });
+  const kimiEntitlement = useUsageEntitlement({
+    // Kimi 没有 monitor / 订阅摘要：额度只来自 entitlement（/coding/v1/usages）。
+    // 未登录时服务端返回 not_configured，面板按同态样式提示，不发 quota 请求。
+    enabled:
+      !loadingSources && effectiveSourceIsKimiCodingPlan && Boolean(individualProviderFingerprint),
+    includeSubscription: false,
+    preferredProviderId: effectiveProviderId,
+    accountAccess: effectiveSource?.accountAccess,
+    allowDisabledPreferredProvider: true,
+    requirePreferredProvider: true,
+    allowEnvApiKey: false,
+    cacheKey: buildUsageEntitlementCacheKey({
+      providerId: effectiveProviderId ?? "",
+      providerFingerprint: individualProviderFingerprint,
+    }),
+    refreshOnMount: false,
+  });
   // 原 zai providerId 一律走 zaiEntitlement（个人），把 team plan 漏掉。
-  // 改为先判 team plan，命中走 teamEntitlement；否则按 providerId 走个人分支。
-  const effectiveEntitlement = effectiveSourceIsTeamPlan
-    ? teamEntitlement
-    : effectiveProviderId === BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan
-      ? zaiEntitlement
-      : bigmodelEntitlement;
+  // 改为先判 team plan，命中走 teamEntitlement；kimi 走独立 provider；否则按 providerId 走个人分支。
+  const effectiveEntitlement = effectiveSourceIsKimiCodingPlan
+    ? kimiEntitlement
+    : effectiveSourceIsTeamPlan
+      ? teamEntitlement
+      : effectiveProviderId === BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan
+        ? zaiEntitlement
+        : bigmodelEntitlement;
   const effectiveEntitlementSnapshot = effectiveEntitlement.snapshot;
   const effectiveEntitlementRefresh = effectiveEntitlement.refresh;
   const handleResetEntitlementRefresh = useCallback(async () => {
@@ -192,7 +219,9 @@ export function CodingPlanUsagePanel({
     error,
     refresh: refreshCodingPlanUsage,
   } = useCodingPlanUsageStats(range, {
-    enabled: !loadingSources && Boolean(effectiveProviderId),
+    // Kimi 没有 monitor 端点，reset/monitor 系列方法对 kimi providerId 显式抛错，
+    // 必须整段禁用，避免错误请求与失败退避。
+    enabled: !loadingSources && Boolean(effectiveProviderId) && !effectiveSourceIsKimiCodingPlan,
     preferredProviderId: effectiveProviderId,
     accountAccess: effectiveSource?.accountAccess,
     customStartDate: null,
@@ -238,6 +267,20 @@ export function CodingPlanUsagePanel({
     );
   }
 
+  // Kimi 没有远端 monitor（活跃度/趋势/健康）与额度重置能力，走独立分支：
+  // 只用 entitlement 快照画额度卡，活跃度复用本地应用用量并标注口径。
+  if (effectiveSourceIsKimiCodingPlan && effectiveSource) {
+    return (
+      <KimiCodingPlanUsageSection
+        entitlementSnapshot={effectiveEntitlementSnapshot}
+        error={effectiveEntitlement.error}
+        loading={effectiveEntitlement.loading}
+        source={effectiveSource}
+        onRefresh={handleResetEntitlementRefresh}
+      />
+    );
+  }
+
   return (
     <div className="space-y-5">
       {error ? <UsageStatsErrorNotice error={error} /> : null}
@@ -274,6 +317,142 @@ export function CodingPlanUsagePanel({
   );
 }
 
+/**
+ * Kimi 用量面板。
+ *
+ * 数据面只有远端 entitlement（5 小时窗口 / 周配额 / 会员等级）与本地应用用量；
+ * 远端 monitor 与额度重置是智谱专有，这里不渲染也不触发。
+ */
+function KimiCodingPlanUsageSection({
+  entitlementSnapshot,
+  error,
+  loading,
+  onRefresh,
+  source,
+}: {
+  entitlementSnapshot: UsageEntitlementSnapshot | null;
+  error: string | null;
+  loading: boolean;
+  onRefresh: () => void | Promise<void>;
+  source: CodingPlanUsageSource;
+}) {
+  const { intl } = useZCodeIntl();
+  const quota = entitlementSnapshot?.quota ?? null;
+  const remaining = entitlementSnapshot?.remaining ?? null;
+  const notConfigured =
+    entitlementSnapshot != null &&
+    (entitlementSnapshot.authenticated === false ||
+      entitlementSnapshot.unavailableReason === "not_configured");
+  const hasQuotaLimits = Boolean(quota?.limits.length);
+
+  return (
+    <div className="space-y-5">
+      {error ? <UsageStatsErrorNotice error={error} /> : null}
+
+      {loading && !entitlementSnapshot ? (
+        <UsageEmptyState
+          title={intl.formatMessage({ id: "settings.usage.loadingTitle" })}
+          description={intl.formatMessage({
+            id: "settings.usage.codingPlanLoadingDescription",
+          })}
+        />
+      ) : notConfigured ? (
+        <UsageEmptyState
+          title={intl.formatMessage({ id: "settings.usage.kimiNotConfiguredTitle" })}
+          description={intl.formatMessage({
+            id: "settings.usage.kimiNotConfiguredDescription",
+          })}
+        />
+      ) : entitlementSnapshot ? (
+        <>
+          {/* 非公开接口：额度桶缺失时只保留本地活跃度，并明确说明远端额度暂不可用。 */}
+          {hasQuotaLimits || remaining ? (
+            <CodingPlanQuotaCards
+              quota={quota}
+              mcpQuotaLimit={null}
+              generatedAt={entitlementSnapshot.generatedAt}
+              sourceKey={source.id}
+              preferredProviderId={source.providerId}
+              accountAccess={source.accountAccess}
+              planLevelBadge={formatKimiPlanLevel(quota?.level)}
+              onEntitlementRefresh={onRefresh}
+              onUsageStatsRefresh={onRefresh}
+            />
+          ) : (
+            <UsageEmptyState
+              title={intl.formatMessage({ id: "settings.usage.kimiQuotaUnavailableTitle" })}
+              description={intl.formatMessage({
+                id: "settings.usage.kimiQuotaUnavailableDescription",
+              })}
+            />
+          )}
+          <KimiAppUsageActivitySection />
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Kimi 会员等级来自非公开接口（实测形态如 LEVEL_INTERMEDIATE）。
+ * 只剥离已知的 LEVEL_ 前缀并做词首大写；其它形态原样展示，避免猜测字段语义。
+ */
+function formatKimiPlanLevel(level: string | null | undefined): string | null {
+  const normalized = level?.trim();
+  if (!normalized) {
+    return null;
+  }
+  const match = /^LEVEL[_-]([A-Za-z0-9_-]+)$/.exec(normalized);
+  const label = match?.[1] ?? normalized;
+  return (
+    label
+      .split(/[_\s-]+/)
+      .filter(Boolean)
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+      .join(" ") || normalized
+  );
+}
+
+/**
+ * Kimi 面板的活跃度块：复用 App Usage 的本地统计组件。
+ *
+ * 本地用量模型无关（kimi 请求已计入），与上方远端额度不是同一口径，
+ * 因此标题旁固定标注「本应用用量」，避免被读成套餐额度。
+ */
+function KimiAppUsageActivitySection() {
+  const { intl, locale } = useZCodeIntl();
+  const { snapshot: lifetimeSnapshot } = useAppUsageStats("all");
+  const { snapshot: recentSnapshot } = useAppUsageStats("7d");
+
+  return (
+    <section className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-ui-lg font-medium text-foreground">
+          {intl.formatMessage({ id: "settings.usage.activityTitle" })}
+        </h3>
+        <span className="text-ui-sm text-foreground-subtle">
+          {intl.formatMessage({ id: "settings.usage.kimiLocalUsageNote" })}
+        </span>
+      </div>
+      <AppUsageLifetimeSummaryStrip snapshot={lifetimeSnapshot} />
+      {lifetimeSnapshot?.heatmap.weeks.length ? (
+        <UsageHeatmap locale={locale} intl={intl} weeks={lifetimeSnapshot.heatmap.weeks} />
+      ) : null}
+      {recentSnapshot ? (
+        <UsageChartLoadBoundary
+          scope="settings.usage.kimi-app-daily-model-chart"
+          resetKeys={[recentSnapshot.range, recentSnapshot.generatedAt]}
+          loadingDescription={intl.formatMessage({
+            id: "settings.usage.appUsageLoadingDescription",
+          })}
+        >
+          <KimiAppUsageDailyModelTrendChart snapshot={recentSnapshot} />
+        </UsageChartLoadBoundary>
+      ) : null}
+    </section>
+  );
+}
+
 function CodingPlanRangeSelector({
   range,
   onRangeChange,
@@ -301,6 +480,7 @@ function CodingPlanQuotaCards({
   sourceKey,
   preferredProviderId,
   accountAccess,
+  planLevelBadge,
   onEntitlementRefresh,
   onUsageStatsRefresh,
 }: {
@@ -314,6 +494,8 @@ function CodingPlanQuotaCards({
     | import("@zcode/shared").ZCodeProviderAccountAccess
     | import("@zcode/shared").ZCodeAccountAccess
     | undefined;
+  /** 会员等级标签；智谱额度卡已由连接方式展示等级，这里只有 kimi 分支传入。 */
+  planLevelBadge?: string | null;
   onEntitlementRefresh: () => void | Promise<void>;
   onUsageStatsRefresh: () => void | Promise<void>;
 }) {
@@ -323,6 +505,9 @@ function CodingPlanQuotaCards({
     sourceKey,
     preferredProviderId,
     accountAccess,
+    // Kimi 无额度重置能力（reset 系列方法对 kimi providerId 显式抛错），
+    // 必须整体关闭：否则 status/opportunity 轮询会打到智谱域名并进入失败退避。
+    enabled: !isKimiCodingPlanProviderId(preferredProviderId ?? ""),
     onEntitlementRefresh,
   });
   const limits = quota?.limits ?? [];
@@ -428,6 +613,11 @@ function CodingPlanQuotaCards({
           <h3 className="text-ui-lg font-medium text-foreground">
             {intl.formatMessage({ id: "settings.usage.quotaTitle" })}
           </h3>
+          {planLevelBadge ? (
+            <span className="shrink-0 rounded-full border border-border bg-surface px-2 py-0.5 text-ui-xs font-medium leading-none text-foreground-subtle">
+              {planLevelBadge}
+            </span>
+          ) : null}
           {(fiveHourCardVisible && resetUi.entry) || (weeklyCardVisible && resetUi.week.entry) ? (
             <CodingPlanQuotaResetOpportunity
               count={opportunityBadge.count}

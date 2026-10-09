@@ -23,6 +23,7 @@ import {
   ApiError,
   BUILTIN_MODEL_PROVIDER_IDS,
   isCodingPlanModelProviderId,
+  isKimiCodingPlanProviderId,
   isStartPlanModelProviderId,
   isZaiCodingPlanProviderId,
   buildBigModelApiUrl,
@@ -68,6 +69,7 @@ import {
 } from "./zcodeMcpQuotaProvider.js";
 import type { BigModelUsageQuotaEnvelope } from "./bigmodelUsageQuotaMapper.js";
 import { normalizeLimits, pickPrimaryLimit } from "./bigmodelUsageQuotaMapper.js";
+import { resolveKimiUsagesUrl } from "./kimiUsageQuotaProvider.js";
 
 const BIGMODEL_QUOTA_PATH = "/api/monitor/usage/quota/limit";
 const CODING_PLAN_RESET_BASE_PATH = "/api/v1/coding-plan/reset";
@@ -1575,14 +1577,27 @@ function resolveCodingPlanApiKeyError(providerId: string | undefined): string {
 }
 
 function resolveAccountProviderQuotaUrl(providerId: string, env: NodeJS.ProcessEnv): string {
-  return isZaiCodingPlanProviderId(providerId) ? buildZaiQuotaUrl(env) : buildBigModelQuotaUrl(env);
+  if (isZaiCodingPlanProviderId(providerId)) {
+    return buildZaiQuotaUrl(env);
+  }
+  // Bug 根因：kimi provider 之前会落到 BigModel 分支拼错域名；kimi 额度走自己的 /usages 端点。
+  if (isKimiCodingPlanProviderId(providerId)) {
+    return resolveKimiUsagesUrl(providerId, env);
+  }
+  return buildBigModelQuotaUrl(env);
 }
 
 function resolveAccountProviderLabel(providerId: string): string {
-  return providerId === BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan ||
+  if (
+    providerId === BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan ||
     providerId === BUILTIN_MODEL_PROVIDER_IDS.zaiStartPlan
-    ? "Z.ai - Coding Plan"
-    : "BigModel - Coding Plan";
+  ) {
+    return "Z.ai - Coding Plan";
+  }
+  if (isKimiCodingPlanProviderId(providerId)) {
+    return "Kimi Coding Plan";
+  }
+  return "BigModel - Coding Plan";
 }
 
 function buildBigModelQuotaUrl(env: NodeJS.ProcessEnv = process.env): string {

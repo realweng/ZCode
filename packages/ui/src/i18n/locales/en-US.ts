@@ -3605,6 +3605,13 @@ const enUS: Record<string, string> = {
   "settings.usage.codingPlanLoadingDescription":
     "Reading the selected provider monitor API, so it can take a moment.",
   "settings.usage.lastRefreshTime": "Last refreshed: {time}",
+  "settings.usage.kimiNotConfiguredTitle": "No Kimi account signed in",
+  "settings.usage.kimiNotConfiguredDescription":
+    "Sign in to Kimi to see the 5-hour window and weekly quota.",
+  "settings.usage.kimiLocalUsageNote": "This app only (all models, different from the quota above)",
+  "settings.usage.kimiQuotaUnavailableTitle": "No quota to show",
+  "settings.usage.kimiQuotaUnavailableDescription":
+    "The quota API returned neither the 5-hour window nor the weekly quota this time. Refresh to try again.",
   "settings.usage.error":
     "Unable to load usage stats. Try again later or check the network and provider configuration.",
   "settings.usage.checkApiKey": "Check account",

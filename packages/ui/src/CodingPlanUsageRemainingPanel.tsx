@@ -7,6 +7,9 @@ import type {
 import {
   BIGMODEL_PROVIDER_ID,
   BUILTIN_MODEL_PROVIDER_IDS,
+  isKimiCodingPlanProviderId,
+  KIMI_GLOBAL_PROVIDER_ID,
+  KIMI_PROVIDER_ID,
   type OAuthProviderId,
   ZAI_PROVIDER_ID,
 } from "@zcode/shared";
@@ -106,13 +109,23 @@ function resolveCodingPlanTabProviderIcon(providerId: string): OAuthProviderId {
   if (providerId === BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan) {
     return ZAI_PROVIDER_ID;
   }
+  if (providerId === BUILTIN_MODEL_PROVIDER_IDS.kimiCodingPlan) {
+    return KIMI_PROVIDER_ID;
+  }
+  if (providerId === BUILTIN_MODEL_PROVIDER_IDS.kimiGlobalCodingPlan) {
+    return KIMI_GLOBAL_PROVIDER_ID;
+  }
   return BIGMODEL_PROVIDER_ID;
 }
 
 function formatCodingPlanProviderTabAriaLabel(providerId: string): string {
-  return providerId === BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan
-    ? "Z.ai Coding Plan"
-    : "BigModel Coding Plan";
+  if (providerId === BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan) {
+    return "Z.ai Coding Plan";
+  }
+  if (isKimiCodingPlanProviderId(providerId)) {
+    return "Kimi Coding Plan";
+  }
+  return "BigModel Coding Plan";
 }
 
 function getEntitlementSourceId(
@@ -125,6 +138,11 @@ export function hasActiveCodingPlanSnapshot(
   snapshot: UsageEntitlementSnapshot | null,
   providerId: string,
 ): boolean {
+  if (isKimiCodingPlanProviderId(providerId)) {
+    // Kimi 无订阅商品摘要（subscription 恒为 null），活跃判定只看已鉴权的额度快照。
+    // 登出后服务端返回 authenticated=false，入口不再算作有套餐。
+    return snapshot?.provider?.id === providerId && snapshot.authenticated === true;
+  }
   return (
     snapshot?.provider?.id === providerId &&
     snapshot.unavailableReason !== "no_plan" &&

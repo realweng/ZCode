@@ -3396,6 +3396,12 @@ const zhCN: Record<string, string> = {
   "settings.usage.codingPlanLoadingDescription":
     "正在读取当前供应商 monitor 接口，可能需要一点时间。",
   "settings.usage.lastRefreshTime": "最近刷新时间：{time}",
+  "settings.usage.kimiNotConfiguredTitle": "未登录 Kimi 账号",
+  "settings.usage.kimiNotConfiguredDescription": "登录 Kimi 账号后即可查看 5 小时窗口与每周额度。",
+  "settings.usage.kimiLocalUsageNote": "本应用用量（含全部模型，与上方额度口径不同）",
+  "settings.usage.kimiQuotaUnavailableTitle": "暂无可展示的额度",
+  "settings.usage.kimiQuotaUnavailableDescription":
+    "额度接口本次未返回 5 小时窗口与每周额度，可稍后刷新重试。",
   "settings.usage.error": "无法读取用量统计。请稍后重试，或检查网络和供应商配置。",
   "settings.usage.checkApiKey": "检查账号",
   "usage.error.stats.credential":

@@ -2495,6 +2495,7 @@ export function createLocalServices(options: {
         credentialService,
         zcodeAgentService,
         officialMcpCredentialSource,
+        oauthService,
       }),
     )
     .register(ICodingPlanSubscriptionService, codingPlanSubscriptionService)

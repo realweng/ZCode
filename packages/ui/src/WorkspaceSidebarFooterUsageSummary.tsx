@@ -7,6 +7,7 @@ import {
   normalizeProviderFamilyDomain,
   resolveModelProviderFamilyIdByProviderId,
   TID_SIDEBAR_CODING_PLAN_USAGE_BUTTON,
+  type ZCodeProviderAccountAccess,
 } from "@zcode/shared";
 import { BarChart3Icon, RocketIcon } from "lucide-react";
 import { DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu.js";
@@ -21,6 +22,7 @@ import { useSettings } from "@/hooks/useSettingService.js";
 import {
   resolveEntitledAccountProviderAccess,
   resolveEntitledAccountProviderAccessFingerprint,
+  resolveKimiAccountProviderAccess,
 } from "@/lib/accountProviderAccess.js";
 import { buildUsageEntitlementCacheKey } from "@/lib/usageEntitlementCache.js";
 import {
@@ -52,6 +54,15 @@ export {
 } from "@/WorkspaceSidebarFooterPlanBadgeHelpers.js";
 
 const TID_SIDEBAR_CODING_PLAN_UPGRADE_BUTTON = "sidebar-coding-plan-upgrade-button";
+
+/**
+ * Kimi 来源的 provider 条目。
+ * `CodingPlanUsageAvailableProvider` 的 accountAccess 是 zhipu/kimi 的宽联合，
+ * 这里收窄到 Provider 级 access，才能直接读 `entitled` 判断区域登录态。
+ */
+interface KimiCodingPlanUsageProvider extends CodingPlanUsageAvailableProvider {
+  accountAccess: ZCodeProviderAccountAccess;
+}
 
 export function WorkspaceSidebarFooterUsageSummary({
   enabled,
@@ -104,7 +115,20 @@ export function useWorkspaceSidebarFooterUsageSummaryState({
       ? selectWorkspaceZCodeState(state, workspacePath, workspaceIdentity).selectedSupplierKey
       : "",
   );
-  const availableCodingPlanProviders = useMemo(
+  const selectedProviderIdFromSupplierKey =
+    parseCustomProviderIdFromSupplierKey(selectedSupplierKey);
+  const selectedProviderFamilyId = selectedProviderIdFromSupplierKey
+    ? resolveModelProviderFamilyIdByProviderId(selectedProviderIdFromSupplierKey)
+    : null;
+  // providerFamilyDomain 是当前登录/运行 family 边界；BigModel Team selectedKey
+  // 会在切换到 Z.ai 后保留，footer 若不按当前 domain 过滤会把头像旁徽标误显示成 Team。
+  const scopedSelectedProviderId =
+    selectedProviderFamilyId &&
+    providerFamilyDomain &&
+    selectedProviderFamilyId !== providerFamilyDomain
+      ? null
+      : selectedProviderIdFromSupplierKey;
+  const zhipuCodingPlanProviders = useMemo(
     () =>
       [
         BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan,
@@ -126,10 +150,44 @@ export function useWorkspaceSidebarFooterUsageSummaryState({
       }),
     [providerSettingsView],
   );
-  const zaiProvider = availableCodingPlanProviders.find(
+  // Kimi 是独立账号域（单活语义）：只有当前展示域是 kimi 时才把它的来源接入 footer，
+  // 避免 zhipu 域出现另一个账号域的额度。
+  const kimiCodingPlanProviders = useMemo(
+    () =>
+      providerFamilyDomain === "kimi"
+        ? [
+            BUILTIN_MODEL_PROVIDER_IDS.kimiCodingPlan,
+            BUILTIN_MODEL_PROVIDER_IDS.kimiGlobalCodingPlan,
+          ].flatMap((providerId): KimiCodingPlanUsageProvider[] => {
+            const access = resolveKimiAccountProviderAccess(providerSettingsView, providerId);
+            if (!access) return [];
+            return [
+              {
+                providerId,
+                accountAccess: access.access,
+                label: access.label || "Kimi - Coding Plan",
+              },
+            ];
+          })
+        : [],
+    [providerFamilyDomain, providerSettingsView],
+  );
+  // 两个区域各持独立 OAuth 凭据：当前选中的模型 provider 优先，其次取已登录区域。
+  const activeKimiCodingPlanProvider =
+    kimiCodingPlanProviders.find((provider) => provider.providerId === scopedSelectedProviderId) ??
+    kimiCodingPlanProviders.find((provider) => provider.accountAccess.entitled === true) ??
+    kimiCodingPlanProviders[0];
+  const availableCodingPlanProviders = useMemo(
+    () => [
+      ...zhipuCodingPlanProviders,
+      ...(activeKimiCodingPlanProvider ? [activeKimiCodingPlanProvider] : []),
+    ],
+    [activeKimiCodingPlanProvider, zhipuCodingPlanProviders],
+  );
+  const zaiProvider = zhipuCodingPlanProviders.find(
     (provider) => provider.providerId === BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan,
   );
-  const bigmodelProvider = availableCodingPlanProviders.find(
+  const bigmodelProvider = zhipuCodingPlanProviders.find(
     (provider) => provider.providerId === BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan,
   );
   const zaiProviderFingerprint = resolveEntitledAccountProviderAccessFingerprint(
@@ -148,19 +206,6 @@ export function useWorkspaceSidebarFooterUsageSummaryState({
     providerSettingsView,
     BUILTIN_MODEL_PROVIDER_IDS.bigmodelTeamCodingPlan,
   );
-  const selectedProviderIdFromSupplierKey =
-    parseCustomProviderIdFromSupplierKey(selectedSupplierKey);
-  const selectedProviderFamilyId = selectedProviderIdFromSupplierKey
-    ? resolveModelProviderFamilyIdByProviderId(selectedProviderIdFromSupplierKey)
-    : null;
-  // providerFamilyDomain 是当前登录/运行 family 边界；BigModel Team selectedKey
-  // 会在切换到 Z.ai 后保留，footer 若不按当前 domain 过滤会把头像旁徽标误显示成 Team。
-  const scopedSelectedProviderId =
-    selectedProviderFamilyId &&
-    providerFamilyDomain &&
-    selectedProviderFamilyId !== providerFamilyDomain
-      ? null
-      : selectedProviderIdFromSupplierKey;
   const bigmodelFamilyAllowed = providerFamilyDomain !== "zai";
   // 原只有 bigmodelFamilyAllowed 单变量，zai family 下 enterprise products 完全不拉。
   // zai team plan 对称化需要 zai family 也独立拉一份 enterprise pricing。
@@ -236,11 +281,17 @@ export function useWorkspaceSidebarFooterUsageSummaryState({
                 )!.access,
               }
             : {}),
+          ...(activeKimiCodingPlanProvider
+            ? {
+                kimi: activeKimiCodingPlanProvider.accountAccess,
+              }
+            : {}),
         },
         teamSources,
       }),
     [
       scopedSelectedProviderId,
+      activeKimiCodingPlanProvider,
       bigmodelProvider?.accountAccess,
       sharedSettings?.providerFamilyConnectionSelections,
       teamSources,
@@ -303,6 +354,28 @@ export function useWorkspaceSidebarFooterUsageSummaryState({
     cacheKey: currentUsageSource?.teamSource?.id,
     refreshOnMount: false,
   });
+  const kimiEntitlement = useUsageEntitlement({
+    // Kimi 无订阅摘要（subscription 恒为 null），只取额度与会员等级；
+    // 未登录时服务端返回 not_configured，banner 按同态样式提示。
+    enabled: enabled && !providerSourcesLoading && Boolean(activeKimiCodingPlanProvider),
+    includeSubscription: false,
+    preferredProviderId: activeKimiCodingPlanProvider?.providerId,
+    accountAccess: activeKimiCodingPlanProvider?.accountAccess,
+    allowDisabledPreferredProvider: true,
+    requirePreferredProvider: true,
+    allowEnvApiKey: false,
+    cacheKey: activeKimiCodingPlanProvider
+      ? buildUsageEntitlementCacheKey({
+          providerId: activeKimiCodingPlanProvider.providerId,
+          providerFingerprint: JSON.stringify([
+            providerSettingsView?.revision,
+            activeKimiCodingPlanProvider.providerId,
+            activeKimiCodingPlanProvider.accountAccess,
+          ]),
+        })
+      : "",
+    refreshOnMount: false,
+  });
   // footer 是常驻入口，refreshOnMount: false 后冷启动没有其它
   // 入口预热 entitlement，个人计划徽标缺失。可见时触发一次 access 刷新，复用共享
   // 1 分钟 freshness window、失败退避和 in-flight 合并；hook disabled 时 refresh 是 no-op。
@@ -311,10 +384,16 @@ export function useWorkspaceSidebarFooterUsageSummaryState({
       zaiEntitlement.refresh,
       bigmodelEntitlement.refresh,
       teamEntitlement.refresh,
+      kimiEntitlement.refresh,
     ]) {
       void refresh({ silent: true, reason: "access" });
     }
-  }, [zaiEntitlement.refresh, bigmodelEntitlement.refresh, teamEntitlement.refresh]);
+  }, [
+    zaiEntitlement.refresh,
+    bigmodelEntitlement.refresh,
+    teamEntitlement.refresh,
+    kimiEntitlement.refresh,
+  ]);
   const profilePlanBadge = resolveSidebarFooterProfilePlanBadge({
     individualEntitlements: [
       ...(providerFamilyDomain !== "bigmodel"
@@ -381,6 +460,19 @@ export function useWorkspaceSidebarFooterUsageSummaryState({
           },
         ]
       : []),
+    // Kimi 没有 team source，额度来源直接绑定当前区域的 provider；
+    // 未登录时 snapshot 为 not_configured，banner 不把它算作有套餐。
+    ...(activeKimiCodingPlanProvider
+      ? [
+          {
+            sourceId: activeKimiCodingPlanProvider.providerId,
+            providerId: activeKimiCodingPlanProvider.providerId,
+            accountAccess: activeKimiCodingPlanProvider.accountAccess,
+            label: activeKimiCodingPlanProvider.label,
+            ...kimiEntitlement,
+          },
+        ]
+      : []),
   ];
   const usageState = resolveCodingPlanUsageRemainingState({
     availableProviders: availableCodingPlanProviders,
@@ -389,15 +481,19 @@ export function useWorkspaceSidebarFooterUsageSummaryState({
     selectedProviderId,
   });
   const visibleUsageState = usageState?.hasAnyActiveCodingPlan ? usageState : null;
-  const selectedUpgradeProviderId: SidebarUsageCodingPlanProviderId | undefined =
-    selectedProviderId === BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan ||
-    selectedProviderId === BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan
-      ? selectedProviderId
+  // 升级/续期只覆盖智谱商品：Kimi 没有对应购买链路，kimi providerId 落到弹窗会打开空商品页。
+  const resolveZhipuUpgradeProviderId = (
+    providerId: string | undefined,
+  ): SidebarUsageCodingPlanProviderId | undefined =>
+    providerId === BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan ||
+    providerId === BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan
+      ? providerId
       : undefined;
+  const selectedUpgradeProviderId = resolveZhipuUpgradeProviderId(selectedProviderId);
   const upgradeTargetProviderId =
     selectedUpgradeProviderId ??
-    currentUsageSource?.providerId ??
-    availableCodingPlanProviders[0]?.providerId ??
+    resolveZhipuUpgradeProviderId(currentUsageSource?.providerId) ??
+    zhipuCodingPlanProviders[0]?.providerId ??
     resolveSidebarCodingPlanUpgradeFallbackProviderId(providerFamilyDomain);
   return {
     audience: currentUsageSource?.audience,

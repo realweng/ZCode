@@ -5,7 +5,10 @@ export type SidebarUsageCodingPlanProviderId =
   | typeof BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan
   | typeof BUILTIN_MODEL_PROVIDER_IDS.zaiTeamCodingPlan
   | typeof BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan
-  | typeof BUILTIN_MODEL_PROVIDER_IDS.bigmodelTeamCodingPlan;
+  | typeof BUILTIN_MODEL_PROVIDER_IDS.bigmodelTeamCodingPlan
+  // Kimi 无 Start/Team 商品形态，两个区域各自是一个可展示来源。
+  | typeof BUILTIN_MODEL_PROVIDER_IDS.kimiCodingPlan
+  | typeof BUILTIN_MODEL_PROVIDER_IDS.kimiGlobalCodingPlan;
 export type SidebarUsageCodingPlanSourceId = SidebarUsageCodingPlanProviderId | `team:${string}`;
 
 const SIDEBAR_USAGE_CODING_PLAN_PROVIDER_STORAGE_KEY = "zcode:sidebar-usage-coding-plan-provider";
@@ -15,6 +18,8 @@ const SIDEBAR_USAGE_CODING_PLAN_PROVIDER_IDS: SidebarUsageCodingPlanProviderId[]
   BUILTIN_MODEL_PROVIDER_IDS.zaiTeamCodingPlan,
   BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan,
   BUILTIN_MODEL_PROVIDER_IDS.bigmodelTeamCodingPlan,
+  BUILTIN_MODEL_PROVIDER_IDS.kimiCodingPlan,
+  BUILTIN_MODEL_PROVIDER_IDS.kimiGlobalCodingPlan,
 ];
 
 function isSidebarUsageCodingPlanProviderId(

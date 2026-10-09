@@ -1,8 +1,8 @@
 import type { ProviderSettingsView } from "@zcode/services";
 import { type ZCodeProviderAccountAccess, zcodeProviderAccountAccessSchema } from "@zcode/shared";
 
-interface EntitledAccountProviderAccess {
-  readonly providerId: string;
+interface EntitledAccountProviderAccess<ProviderId extends string = string> {
+  readonly providerId: ProviderId;
   readonly access: ZCodeProviderAccountAccess;
   readonly label?: string;
 }
@@ -21,6 +21,30 @@ export function resolveEntitledAccountProviderAccess(
   const parsed = zcodeProviderAccountAccessSchema.safeParse(provider.effectiveConfig.access);
   if (!parsed.success || parsed.data.entitled !== true) return null;
   const label = provider.providerName?.trim();
+  return {
+    providerId,
+    access: parsed.data,
+    ...(label ? { label } : {}),
+  };
+}
+
+/**
+ * Kimi 账号访问（kimi / kimi-global）。
+ *
+ * 与 zhipu 不同：Kimi 的可用性只由本地 OAuth 会话推导，登出后 access 仍在 Provider 配置里
+ * （entitled=false）。额度展示需要登出态也能构造来源并展示 not_configured，因此这里不按
+ * entitled 过滤，调用方按 `access.entitled` 自行区分已登录/未登录。
+ */
+export function resolveKimiAccountProviderAccess<ProviderId extends string>(
+  view: ProviderSettingsView | null | undefined,
+  providerId: ProviderId,
+): EntitledAccountProviderAccess<ProviderId> | null {
+  const provider = view?.providers.find((entry) => entry.providerId === providerId);
+  const parsed = zcodeProviderAccountAccessSchema.safeParse(provider?.effectiveConfig.access);
+  if (!parsed.success || parsed.data.type !== "kimi-account") {
+    return null;
+  }
+  const label = provider?.providerName?.trim();
   return {
     providerId,
     access: parsed.data,
