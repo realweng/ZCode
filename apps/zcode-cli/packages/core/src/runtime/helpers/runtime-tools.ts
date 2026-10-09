@@ -76,6 +76,8 @@ function registerRuntimeBuiltInTools(runtime: AgentRuntimeInternal, deps: AgentR
     // node_repl/browser-use 由 ZCode 官方 browser-use 插件启停推导出的 runtimeFeatures 控制。
     includeNodeRepl: nodeReplEnabled,
     includeBrowserUse: browserUseEnabled,
+    // ObservationPack：控制器在场（features.observationPack + artifactStore）才注册召回工具。
+    includeObservationRecall: runtime.observationPack !== undefined,
     embeddedSearchEnabled: resolveRuntimeEmbeddedSearchEnabled(runtime),
     agentProfiles: runtime.config.subagents?.profiles,
     allowedTools: resolveBuiltInToolAllowlist(runtime.config),
@@ -188,6 +190,8 @@ function createRuntimeToolExecutor(
     workflowSubmitPort: deps.workflowSubmitPort,
     workflowEscalatePort: deps.workflowEscalatePort,
     artifactStore: deps.artifactStore,
+    // ObservationPack 召回端口：控制器即端口（recall 签名同构），缺席则 ObsRecall 报能力缺口。
+    observationRecallPort: runtime.observationPack,
     automationPort: deps.automationPort,
     offPeakPort: deps.offPeakPort,
     sessionStore: deps.sessionStore,

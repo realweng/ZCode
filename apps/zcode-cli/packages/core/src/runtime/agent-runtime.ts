@@ -84,6 +84,7 @@ import type {
   RuntimeBackgroundStopResult,
 } from "./methods/background.js";
 import { initializeRuntimeTooling } from "./helpers/runtime-tools.js";
+import { ObservationPackController } from "../harness-efficiency/observation-pack/controller.js";
 import type {
   ActiveTurnInfo,
   ActiveForegroundExecutionState,
@@ -178,6 +179,8 @@ export class AgentRuntime {
   private runtimeTaskRegistry: RuntimeTaskRegistry;
   private branchGeneration = 0;
   private artifactStore?: ToolArtifactStorePort;
+  /** ObservationPack 控制器（SoL-Pi 内化 P1）；enabled 且 artifactStore 在场时创建。 */
+  private observationPack?: ObservationPackController;
   private executionPort?: ExecutionPort;
   private fileSystemPort?: FileSystemPort;
   private imageProcessorPort?: ImageProcessorPort;
@@ -284,6 +287,10 @@ export class AgentRuntime {
     this.runtimeTaskRegistry = deps.runtimeTaskRegistry ?? new InMemoryRuntimeTaskRegistry();
     this.runtimeTaskRegistry.setActiveBranchGeneration?.(this.branchGeneration);
     this.artifactStore = deps.artifactStore;
+    this.observationPack =
+      config.observationPack?.enabled === true && deps.artifactStore !== undefined
+        ? new ObservationPackController({ sessionId, artifactStore: deps.artifactStore })
+        : undefined;
     this.executionPort = deps.executionPort;
     this.fileSystemPort = deps.fileSystemPort;
     this.imageProcessorPort = deps.imageProcessorPort;

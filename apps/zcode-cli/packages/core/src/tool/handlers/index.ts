@@ -35,6 +35,7 @@ import {
   taskToolEntry,
 } from "./agent.js";
 import { isSubagentDispatchToolName } from "../compat.js";
+import { obsRecallToolEntry, OBS_RECALL_TOOL_NAME } from "../../harness-efficiency/observation-pack/recall-tool.js";
 import { skillToolEntry } from "./skill.js";
 import { todoReadToolEntry, todoWriteToolEntry } from "./todo.js";
 import {
@@ -133,6 +134,9 @@ export const builtInTools: ToolEntry[] = [
   // `subagent_model`。不进 WORKFLOW_CHILD_DISALLOWED_TOOLS
   // ——那条禁令的理由是 alwaysAsk 在 child 里无窗可弹，只读查询不适用。
   listModelsToolEntry,
+  // ObservationPack（SoL-Pi 内化 P1）的召回面：只读、无 gate，注册门
+  // includeObservationRecall（features.observationPack）；缺席时占位符不存在，工具也无从指涉。
+  obsRecallToolEntry,
   // workflowToolEntry,
 ];
 
@@ -185,6 +189,8 @@ interface RegisterBuiltInToolsOptions {
   includeNodeRepl?: boolean;
   /** browser-use 说明和 agent.browsers 注入由官方 browser-use 插件 + 宿主 browser bridge 共同启用。 */
   includeBrowserUse?: boolean;
+  /** ObsRecall：仅 features.observationPack 开启的会话注册（投影占位符在场它才有意义）。 */
+  includeObservationRecall?: boolean;
   embeddedSearchEnabled?: boolean;
   agentProfiles?: readonly AgentProfile[];
   allowedTools?: readonly string[];
@@ -260,6 +266,9 @@ export function registerBuiltInTools(
       continue;
     }
     if (entry.metadata.name === "js" && options.includeNodeRepl !== true) {
+      continue;
+    }
+    if (entry.metadata.name === OBS_RECALL_TOOL_NAME && options.includeObservationRecall !== true) {
       continue;
     }
     registry.register(resolveBuiltInToolEntryForBranch(entry, options), {

@@ -37,6 +37,7 @@ import type {
 import type { HookRunner } from "../../hooks/index.js";
 import type { PermissionService } from "../../permission/service.js";
 import type { RuntimeTaskRegistry } from "../../runtime-task/registry.js";
+import type { ObservationRecallPort } from "../../harness-efficiency/observation-pack/types.js";
 import type { ToolRegistry } from "../registry.js";
 import type { ToolSchedule } from "../scheduler.js";
 import type {
@@ -104,6 +105,8 @@ export interface ToolExecutorOptions {
   /** actor 的升级端口；存在即为该会话注册 escalate。 */
   workflowEscalatePort?: WorkflowEscalatePort;
   artifactStore?: ToolArtifactStorePort;
+  /** ObservationPack 召回端口；ObsRecall 据此分页句柄化的工具结果原文。 */
+  observationRecallPort?: ObservationRecallPort;
   automationPort?: AutomationPort;
   offPeakPort?: OffPeakPort;
   sessionStore?: SessionStorePort;
@@ -210,6 +213,8 @@ export interface ToolExecutorDeps {
   /** actor 的升级端口；存在即为该会话注册 escalate。 */
   workflowEscalatePort?: WorkflowEscalatePort;
   artifactStore?: ToolArtifactStorePort;
+  /** ObservationPack 召回端口；ObsRecall 据此分页句柄化的工具结果原文。 */
+  observationRecallPort?: ObservationRecallPort;
   automationPort?: AutomationPort;
   offPeakPort?: OffPeakPort;
   sessionStore?: SessionStorePort;

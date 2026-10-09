@@ -183,6 +183,12 @@ export function resolveAppRuntimeConfig(input: {
       use: options.runtimeConfig?.memory?.use ?? configResult.config.memory.use,
       workspaceIdentity: workspaceIdentity?.trim() || undefined,
     },
+    // ObservationPack（SoL-Pi 内化 P1）：config features 默认关；会话级 runtimeConfig 可显式覆盖。
+    observationPack: {
+      enabled:
+        options.runtimeConfig?.observationPack?.enabled ??
+        configResult.config.features.observationPack,
+    },
   };
   return {
     configuredMcpServers,

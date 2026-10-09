@@ -166,7 +166,17 @@ export async function runRegularTurnLoop(
       ]);
     }
     const providerEntries = [...state.turnRequestState.entries];
-    const requestEntries = providerEntries;
+    // ObservationPack 投影前置（SoL-Pi 内化 P1）：归档大体积纯文本工具结果，并按
+    // 全量发送计数决定原样通过或替换为占位符。只变换请求副本——canonical history、
+    // 持久化 parts 与 compact 摘要投影（compact.ts 另一条路径）看到的仍是原文。
+    // 归档失败 fail-open：条目原样进入请求，不中断 model step。
+    const requestEntries = this.observationPack
+      ? (
+          await this.observationPack.projectEntries(providerEntries, {
+            trace: state.turnTraceContext,
+          })
+        ).entries
+      : providerEntries;
     // provider-visible user ordering projection 会改变最终 latest user 落点，
     // cache-control 必须在 projection 后统一设置，避免 raw synthetic entry 抢占缓存锚点。
     const providerProjection = buildRuntimeProviderRequestMessages(this, {

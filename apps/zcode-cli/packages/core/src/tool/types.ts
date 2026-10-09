@@ -37,6 +37,7 @@ import type {
   WorkflowEscalatePort,
   WorkflowSubmitPort,
 } from "@zcode/contracts";
+import type { ObservationRecallPort } from "../harness-efficiency/observation-pack/types.js";
 import type {
   JsonSchema,
   ModelToolSideEffectScope,
@@ -165,6 +166,11 @@ export interface ToolExecutionContext {
   /** 工作流 actor 升级阻塞问题并等待主代理作答的端口；仅在 workflow actor 会话注入。 */
   workflowEscalatePort?: WorkflowEscalatePort;
   artifactStore?: ToolArtifactStorePort;
+  /**
+   * ObservationPack 召回端口；仅 features.observationPack 开启的会话注入。
+   * ObsRecall 工具据此分页读取句柄化的工具结果原文（与 readFileState 同款注入先例）。
+   */
+  observationRecallPort?: ObservationRecallPort;
   automationPort?: AutomationPort;
   offPeakPort?: OffPeakPort;
   sessionStore?: SessionStorePort;

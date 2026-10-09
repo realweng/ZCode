@@ -131,6 +131,12 @@ export interface AgentRuntimeConfig {
   maxTurns?: number;
   permissionTimeoutMs?: number;
   compact?: AutoCompactPolicyConfig;
+  /**
+   * ObservationPack（SoL-Pi 内化 P1）：大体积纯文本工具结果在 provider 投影层句柄化，
+   * 前 N 次全量发送后替换为占位符 + 首/尾摘录，原文归档进 artifact store，
+   * 模型经 ObsRecall 按字节偏移分页召回。默认关闭；fail-open。
+   */
+  observationPack?: { enabled?: boolean };
   targetCompletionVerification?: { enabled?: boolean };
   midConversationSystem?: {
     mode?: "auto" | "force";

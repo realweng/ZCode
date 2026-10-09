@@ -36,6 +36,7 @@ export const ConfigKey = {
   FeatureMemory: "features.memory",
   FeatureSkill: "features.skill",
   FeatureMcp: "features.mcp",
+  FeatureObservationPack: "features.observationPack",
 
   // Memory
   MemoryUse: "memory.use",
@@ -109,6 +110,7 @@ export type ConfigValue<K extends ConfigKey> = K extends "modelStream.idleTimeou
                   | "features.memory"
                   | "features.skill"
                   | "features.mcp"
+                  | "features.observationPack"
                   | "skills.enabled"
                   | "skills.includeInstructions"
               ? boolean
@@ -225,6 +227,8 @@ export interface RuntimeConfig {
     memory: boolean;
     skill: boolean;
     mcp: boolean;
+    /** ObservationPack（SoL-Pi 内化 P1）：大结果句柄化投影 + ObsRecall 分页召回；默认关。 */
+    observationPack: boolean;
   };
   memory: {
     use: boolean;
@@ -312,6 +316,7 @@ export const DefaultRuntimeConfig: RuntimeConfig = {
     memory: true,
     skill: true,
     mcp: true,
+    observationPack: false,
   },
   memory: {
     use: true,
